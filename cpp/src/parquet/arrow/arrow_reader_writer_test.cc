@@ -78,6 +78,7 @@ using arrow::Status;
 using arrow::Table;
 using arrow::TimeUnit;
 using arrow::compute::DictionaryEncode;
+using arrow::compute::DictionaryEncodeOptions;
 using arrow::internal::checked_cast;
 using arrow::internal::checked_pointer_cast;
 using arrow::io::BufferReader;
@@ -839,7 +840,8 @@ TYPED_TEST(TestParquetIO, SingleColumnOptionalDictionaryWrite) {
 
   ASSERT_OK(NullableArray<TypeParam>(SMALL_SIZE, 10, kDefaultSeed, &values));
 
-  ASSERT_OK_AND_ASSIGN(Datum out, DictionaryEncode(values));
+  ASSERT_OK_AND_ASSIGN(Datum out,
+                       DictionaryEncode(values, DictionaryEncodeOptions::Defaults()));
   std::shared_ptr<Array> dict_values = MakeArray(out.array());
   std::shared_ptr<GroupNode> schema =
       MakeSimpleSchema(*dict_values->type(), Repetition::OPTIONAL);
