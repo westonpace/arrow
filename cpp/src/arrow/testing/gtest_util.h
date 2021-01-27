@@ -132,8 +132,29 @@
     ASSERT_EQ(expected, _actual);               \
   } while (0)
 
-namespace arrow {
+#define ASSERT_FINISHES_IMPL(fut)                            \
+  do {                                                       \
+    ASSERT_TRUE(fut.Wait(1));                                \
+    if (!fut.is_finished()) {                                \
+      FAIL() << "Future did not finish in a timely fashion"; \
+    }                                                        \
+  } while (false)
 
+#define ASSERT_FINISHES(expr) ASSERT_FINISHES_IMPL((expr));
+
+#define ASSERT_FINISHES_AND_ASSIGN(lhs, rexpr) \
+  do {                                         \
+    auto _fut = (rexpr);                       \
+    ASSERT_FINISHES_IMPL(_fut);                \
+    lhs = _fut.result();                       \
+  } while (false)
+
+#define ASSERT_FINISHES_OK_AND_ASSIGN(lhs, rexpr) \
+  auto _fut = (rexpr);                            \
+  ASSERT_FINISHES_IMPL(_fut);                     \
+  ASSERT_OK_AND_ASSIGN(lhs, _fut.result());
+
+namespace arrow {
 // ----------------------------------------------------------------------
 // Useful testing::Types declarations
 
