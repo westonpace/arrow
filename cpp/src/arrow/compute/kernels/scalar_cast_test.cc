@@ -1892,9 +1892,7 @@ TYPED_TEST(TestDictionaryCast, NoNulls) {
   ASSERT_EQ(plain_array->null_count(), 0);
 
   // Dict-encode the plain array
-  ASSERT_OK_AND_ASSIGN(
-      Datum encoded,
-      DictionaryEncode(plain_array->data(), DictionaryEncodeOptions::Defaults()));
+  ASSERT_OK_AND_ASSIGN(Datum encoded, DictionaryEncode(plain_array->data()));
 
   // Make a new dict array with nullptr bitmap buffer
   auto data = encoded.array()->Copy();
