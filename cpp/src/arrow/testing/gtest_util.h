@@ -146,6 +146,14 @@
     }                                                        \
   } while (false)
 
+#define EXPECT_FINISHES_IMPL(fut)                                   \
+  do {                                                              \
+    EXPECT_TRUE(fut.Wait(10));                                      \
+    if (!fut.is_finished()) {                                       \
+      ADD_FAILURE() << "Future did not finish in a timely fashion"; \
+    }                                                               \
+  } while (false)
+
 #define ASSERT_FINISHES_OK(expr)                                              \
   do {                                                                        \
     const auto& _fut = (expr);                                                \
@@ -174,6 +182,16 @@
 #define ASSERT_FINISHES_OK_AND_ASSIGN(lhs, rexpr) \
   ASSERT_FINISHES_OK_AND_ASSIGN_IMPL(lhs, rexpr,  \
                                      ARROW_ASSIGN_OR_RAISE_NAME(_fut, __COUNTER__))
+
+#define ON_FINISH_ASSIGN_OR_HANDLE_ERROR_IMPL(handle_error, future_name, lhs, rexpr) \
+  auto future_name = (rexpr);                                                        \
+  EXPECT_FINISHES_IMPL(future_name);                                                 \
+  handle_error(future_name.status());                                                \
+  EXPECT_OK_AND_ASSIGN(lhs, future_name.result());
+
+#define EXPECT_FINISHES_OK_AND_ASSIGN(lhs, rexpr) \
+  ON_FINISH_ASSIGN_OR_HANDLE_ERROR_IMPL(          \
+      ARROW_EXPECT_OK, ARROW_ASSIGN_OR_RAISE_NAME(_fut, __COUNTER__), lhs, rexpr);
 
 namespace arrow {
 // ----------------------------------------------------------------------

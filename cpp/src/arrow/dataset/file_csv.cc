@@ -108,7 +108,7 @@ static inline csv::ReadOptions GetReadOptions(const CsvFileFormat& format) {
   return read_options;
 }
 
-static inline Result<std::shared_ptr<csv::StreamingReader>> OpenReader(
+static inline Future<std::shared_ptr<csv::StreamingReader>> OpenReaderAsync(
     const FileSource& source, const CsvFileFormat& format,
     const std::shared_ptr<ScanOptions>& scan_options = nullptr,
     MemoryPool* pool = default_memory_pool()) {
@@ -128,15 +128,26 @@ static inline Result<std::shared_ptr<csv::StreamingReader>> OpenReader(
                           GetConvertOptions(format, scan_options, first_block, pool));
   }
 
-  auto maybe_reader =
-      csv::StreamingReader::Make(io::IOContext(pool), std::move(input), reader_options,
-                                 parse_options, convert_options);
-  if (!maybe_reader.ok()) {
-    return maybe_reader.status().WithMessage("Could not open CSV input source '",
-                                             source.path(), "': ", maybe_reader.status());
-  }
+  return csv::StreamingReader::MakeAsync(io::default_io_context(), std::move(input),
+                                         reader_options, parse_options, convert_options)
+      .Then([source](const Result<std::shared_ptr<csv::StreamingReader>>& maybe_reader)
+                -> Result<std::shared_ptr<csv::StreamingReader>> {
+        if (!maybe_reader.ok()) {
+          return maybe_reader.status().WithMessage("Could not open CSV input source '",
+                                                   source.path(),
+                                                   "': ", maybe_reader.status());
+        }
 
-  return std::move(maybe_reader).ValueOrDie();
+        return maybe_reader;
+      });
+}
+
+static inline Result<std::shared_ptr<csv::StreamingReader>> OpenReader(
+    const FileSource& source, const CsvFileFormat& format,
+    const std::shared_ptr<ScanOptions>& scan_options = nullptr,
+    MemoryPool* pool = default_memory_pool()) {
+  auto open_reader_fut = OpenReaderAsync(source, format, scan_options, pool);
+  return open_reader_fut.result();
 }
 
 /// \brief A ScanTask backed by an Csv file.
@@ -149,10 +160,13 @@ class CsvScanTask : public ScanTask {
         format_(std::move(format)),
         source_(fragment->source()) {}
 
-  Result<RecordBatchIterator> Execute() override {
-    ARROW_ASSIGN_OR_RAISE(auto reader,
-                          OpenReader(source_, *format_, options(), options()->pool));
-    return IteratorFromReader(std::move(reader));
+  Result<RecordBatchGenerator> ExecuteAsync() override {
+    auto reader_fut = OpenReaderAsync(source_, *format_, options(), options()->pool);
+    auto generator_fut = reader_fut.Then(
+        [](const std::shared_ptr<csv::StreamingReader>& reader) -> RecordBatchGenerator {
+          return [reader]() { return reader->ReadNextAsync(); };
+        });
+    return MakeFromFuture(generator_fut);
   }
 
  private:
@@ -186,14 +200,14 @@ Result<std::shared_ptr<Schema>> CsvFileFormat::Inspect(const FileSource& source)
   return reader->schema();
 }
 
-Result<ScanTaskIterator> CsvFileFormat::ScanFile(
+Future<ScanTaskVector> CsvFileFormat::ScanFile(
     std::shared_ptr<ScanOptions> options,
     const std::shared_ptr<FileFragment>& fragment) const {
   auto this_ = checked_pointer_cast<const CsvFileFormat>(shared_from_this());
   auto task = std::make_shared<CsvScanTask>(std::move(this_), std::move(options),
                                             std::move(fragment));
 
-  return MakeVectorIterator<std::shared_ptr<ScanTask>>({std::move(task)});
+  return Future<ScanTaskVector>::MakeFinished(ScanTaskVector{std::move(task)});
 }
 
 }  // namespace dataset

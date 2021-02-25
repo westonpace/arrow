@@ -36,6 +36,8 @@
 #include "arrow/util/thread_pool.h"
 
 namespace arrow {
+using RecordBatchGenerator = AsyncGenerator<std::shared_ptr<RecordBatch>>;
+
 namespace csv {
 
 // Allows the streaming reader to be used in tests that expect a table reader
