@@ -531,26 +531,19 @@ AsyncGenerator<T> MakeReadaheadGenerator(AsyncGenerator<T> source_generator,
   return ReadaheadGenerator<T>(std::move(source_generator), max_readahead);
 }
 
-namespace {
-std::atomic<int> weston(0);
-}
-
 /// \brief Creates a generator that will yield finished futures from a vector
 ///
 /// This generator is async-reentrant
 template <typename T>
 AsyncGenerator<T> MakeVectorGenerator(std::vector<T> vec) {
-  int id = weston.fetch_add(1);
   struct State {
-    explicit State(std::vector<T> vec_, int id)
-        : vec(std::move(vec_)), vec_idx(0), id(id) {}
+    explicit State(std::vector<T> vec_) : vec(std::move(vec_)), vec_idx(0) {}
 
     std::vector<T> vec;
     std::atomic<std::size_t> vec_idx;
-    int id;
   };
 
-  auto state = std::make_shared<State>(std::move(vec), id);
+  auto state = std::make_shared<State>(std::move(vec));
   return [state]() {
     auto idx = state->vec_idx.fetch_add(1);
     if (idx >= state->vec.size()) {
