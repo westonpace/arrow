@@ -477,6 +477,9 @@ void SleepFor(double seconds);
 ARROW_TESTING_EXPORT
 void BusyWait(double seconds, std::function<bool()> predicate);
 
+ARROW_TESTING_EXPORT
+Future<> SleepAsync(double seconds);
+
 template <typename T>
 std::vector<T> IteratorToVector(Iterator<T> iterator) {
   EXPECT_OK_AND_ASSIGN(auto out, iterator.ToVector());

@@ -21,6 +21,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "arrow/testing/gtest_util.h"
 #include "arrow/util/sort.h"
 #include "arrow/util/string.h"
 #include "arrow/util/vector.h"
@@ -90,6 +91,67 @@ TEST(StlUtilTest, ArgSortPermute) {
   ExpectSortPermutation({c, b, a, d, e, f}, {2, 1, 0, 3, 4, 5}, 5);
   ExpectSortPermutation({b, c, a, f, d, e}, {2, 0, 1, 4, 5, 3}, 2);
   ExpectSortPermutation({b, c, d, e, a, f}, {4, 0, 1, 2, 3, 5}, 2);
+}
+
+TEST(StlUtilTest, VectorFlatten) {
+  std::vector<int> a{1, 2, 3};
+  std::vector<int> b{4, 5, 6};
+  std::vector<int> c{7, 8, 9};
+  std::vector<std::vector<int>> vecs{a, b, c};
+  auto actual = FlattenVectors(vecs);
+  std::vector<int> expected{1, 2, 3, 4, 5, 6, 7, 8, 9};
+  ASSERT_EQ(expected, actual);
+}
+
+TEST(StlUtilTest, VectorMap) {
+  std::vector<int> input{1, 2, 3};
+  std::vector<std::string> expected{"1", "2", "3"};
+  auto actual = MapVector([](int item) { return std::to_string(item); }, input);
+  ASSERT_EQ(expected, actual);
+}
+
+TEST(StlUtilTest, VectorMaybeMapFails) {
+  std::vector<int> input{1, 2, 3};
+  auto mapper = [](int item) -> Result<std::string> {
+    if (item == 1) {
+      return Status::Invalid("XYZ");
+    }
+    return std::to_string(item);
+  };
+  ASSERT_RAISES(Invalid, MaybeMapVector(mapper, input));
+}
+
+TEST(StlUtilTest, VectorMaybeMap) {
+  std::vector<int> input{1, 2, 3};
+  std::vector<std::string> expected{"1", "2", "3"};
+  EXPECT_OK_AND_ASSIGN(
+      auto actual,
+      MaybeMapVector([](int item) -> Result<std::string> { return std::to_string(item); },
+                     input));
+  ASSERT_EQ(expected, actual);
+}
+
+TEST(StlUtilTest, VectorUnwrapOrRaise) {
+  // FIXME There should be an easier way to construct these vectors
+  std::vector<Result<MoveOnlyDataType>> all_good;
+  all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(1)));
+  all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(2)));
+  all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(3)));
+
+  std::vector<Result<MoveOnlyDataType>> some_bad;
+  some_bad.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(1)));
+  some_bad.push_back(Result<MoveOnlyDataType>(Status::Invalid("XYZ")));
+  some_bad.push_back(Result<MoveOnlyDataType>(Status::IOError("XYZ")));
+
+  EXPECT_OK_AND_ASSIGN(auto unwrapped, UnwrapOrRaise(std::move(all_good)));
+  std::vector<MoveOnlyDataType> expected;
+  expected.emplace_back(1);
+  expected.emplace_back(2);
+  expected.emplace_back(3);
+
+  ASSERT_EQ(expected, unwrapped);
+
+  ASSERT_RAISES(Invalid, UnwrapOrRaise(std::move(some_bad)));
 }
 
 }  // namespace internal

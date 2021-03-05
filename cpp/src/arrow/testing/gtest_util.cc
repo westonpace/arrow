@@ -49,6 +49,7 @@
 #include "arrow/table.h"
 #include "arrow/type.h"
 #include "arrow/util/checked_cast.h"
+#include "arrow/util/future.h"
 #include "arrow/util/io_util.h"
 #include "arrow/util/logging.h"
 
@@ -601,6 +602,15 @@ void BusyWait(double seconds, std::function<bool()> predicate) {
   for (int i = 0; !predicate() && i * period < seconds; ++i) {
     SleepFor(period);
   }
+}
+
+Future<> SleepAsync(double seconds) {
+  auto out = Future<>::Make();
+  std::thread([out, seconds]() mutable {
+    SleepFor(seconds);
+    out.MarkFinished(Status::OK());
+  }).detach();
+  return out;
 }
 
 ///////////////////////////////////////////////////////////////////////////

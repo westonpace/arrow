@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -34,6 +35,15 @@ template <typename T>
 class Result;
 
 class Status;
+
+namespace detail {
+struct Empty;
+}
+template <typename T = detail::Empty>
+class Future;
+
+template <typename T>
+using AsyncGenerator = std::function<Future<T>()>;
 
 namespace util {
 class Codec;
@@ -77,6 +87,7 @@ struct Datum;
 using ChunkedArrayVector = std::vector<std::shared_ptr<ChunkedArray>>;
 using RecordBatchVector = std::vector<std::shared_ptr<RecordBatch>>;
 using RecordBatchIterator = Iterator<std::shared_ptr<RecordBatch>>;
+using RecordBatchGenerator = AsyncGenerator<std::shared_ptr<RecordBatch>>;
 
 class DictionaryType;
 class DictionaryArray;
