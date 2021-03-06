@@ -646,10 +646,10 @@ class MergeMapGenerator {
         finished = true;
       }
       if (finished) {
-        state->source().Then(OuterCallback{state, index});
+        state->source().AddCallback(OuterCallback{state, index});
       } else if (sink.is_valid()) {
         sink.MarkFinished(*maybe_next);
-        state->active_subscriptions[index]().Then(*this);
+        state->active_subscriptions[index]().AddCallback(*this);
       }
     }
     std::shared_ptr<State> state;
@@ -674,7 +674,7 @@ class MergeMapGenerator {
         }
       }
       if (should_continue) {
-        (*maybe_next)().Then(InnerCallback{state, index});
+        (*maybe_next)().AddCallback(InnerCallback{state, index});
       } else if (should_purge) {
         // At this point state->finished has been marked true so no one else
         // will be interacting with waiting_jobs and we can iterate outside lock
