@@ -90,7 +90,8 @@ template <typename Fn, typename From = internal::call_traits::argument_type<0, F
 Result<std::vector<To>> MaybeMapVector(Fn map, const std::vector<From>& src) {
   std::vector<To> out;
   out.reserve(src.size());
-  RETURN_NOT_OK(MaybeTransform(src.begin(), src.end(), std::back_inserter(out), map));
+  ARROW_RETURN_NOT_OK(
+      MaybeTransform(src.begin(), src.end(), std::back_inserter(out), map));
   return out;
 }
 
