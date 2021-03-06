@@ -212,7 +212,7 @@ class ARROW_EXPORT RecordBatchReader {
   // and then this could become pure virtual with ReadNext falling back to async impl.
   virtual Future<std::shared_ptr<RecordBatch>> ReadNextAsync() {
     std::shared_ptr<RecordBatch> batch;
-    ReadNext(&batch);
+    ARROW_RETURN_NOT_OK(ReadNext(&batch));
     return Future<std::shared_ptr<RecordBatch>>::MakeFinished(std::move(batch));
   }
 
