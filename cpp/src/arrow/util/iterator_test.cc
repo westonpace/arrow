@@ -896,8 +896,8 @@ TEST_P(GeneratorTestFixture, MergeMapParallelStress) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(GeneratorTests, GeneratorTestFixture,
-                        ::testing::Values(false, true));
+INSTANTIATE_TEST_SUITE_P(GeneratorTests, GeneratorTestFixture,
+                         ::testing::Values(false, true));
 
 TEST(TestAsyncUtil, FromVector) {
   AsyncGenerator<TestInt> gen;
