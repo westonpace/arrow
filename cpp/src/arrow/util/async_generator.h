@@ -576,13 +576,13 @@ class MergeMapGenerator {
       }
     }
     if (delivered_job) {
-      delivered_job->deliverer().Then(InnerCallback{state_, delivered_job->index});
+      delivered_job->deliverer().AddCallback(InnerCallback{state_, delivered_job->index});
       return std::move(delivered_job->value);
     }
     if (state_->first) {
       state_->first = false;
       for (std::size_t i = 0; i < state_->active_subscriptions.size(); i++) {
-        state_->source().Then(OuterCallback{state_, i});
+        state_->source().AddCallback(OuterCallback{state_, i});
       }
     }
     return waiting_future;
@@ -590,7 +590,7 @@ class MergeMapGenerator {
 
  private:
   struct DeliveredJob {
-    explicit DeliveredJob(AsyncGenerator<T> deliverer_, T value_, int index_)
+    explicit DeliveredJob(AsyncGenerator<T> deliverer_, T value_, std::size_t index_)
         : deliverer(deliverer_), value(value_), index(index_) {}
 
     AsyncGenerator<T> deliverer;
@@ -625,7 +625,7 @@ class MergeMapGenerator {
   };
 
   struct InnerCallback {
-    Status operator()(const Result<T>& maybe_next) {
+    void operator()(const Result<T>& maybe_next) {
       bool finished = false;
       Future<T> sink;
       if (maybe_next.ok()) {
@@ -651,14 +651,13 @@ class MergeMapGenerator {
         sink.MarkFinished(*maybe_next);
         state->active_subscriptions[index]().Then(*this);
       }
-      return Status::OK();
     }
     std::shared_ptr<State> state;
     std::size_t index;
   };
 
   struct OuterCallback {
-    Status operator()(const Result<AsyncGenerator<T>>& maybe_next) {
+    void operator()(const Result<AsyncGenerator<T>>& maybe_next) {
       bool should_purge = false;
       bool should_continue = false;
       {
@@ -684,7 +683,6 @@ class MergeMapGenerator {
           state->waiting_jobs.pop_front();
         }
       }
-      return Status::OK();
     }
     std::shared_ptr<State> state;
     std::size_t index;
