@@ -707,13 +707,17 @@ TEST(TestAsyncUtil, MapReentrant) {
   // Mapper blocks until signal, should start multiple map tasks
   std::atomic<bool> can_proceed(false);
   std::function<Future<TestStr>(const TestInt&)> mapper =
-      [&can_proceed, &map_tasks_running](const TestInt& in) {
-        map_tasks_running.fetch_add(1);
-        while (!can_proceed.load()) {
-          SleepABit();
-        }
-        return TestStr(std::to_string(in.value));
-      };
+      [&can_proceed, &map_tasks_running](const TestInt& in) -> Future<TestStr> {
+    auto fut = Future<TestStr>::Make();
+    map_tasks_running.fetch_add(1);
+    std::thread([fut, in, &can_proceed]() mutable {
+      while (!can_proceed.load()) {
+        SleepABit();
+      }
+      fut.MarkFinished(TestStr(std::to_string(in.value)));
+    }).detach();
+    return fut;
+  };
   auto mapped = MakeMappedGenerator(std::move(source), mapper);
 
   EXPECT_EQ(0, tracker.num_read());
