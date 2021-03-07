@@ -148,12 +148,12 @@
 
 #define ASSERT_FINISHES_OK(expr)                                              \
   do {                                                                        \
-    const auto& _fut = (expr);                                                     \
+    const auto& _fut = (expr);                                                \
     ASSERT_TRUE(_fut.Wait(10));                                               \
     if (!_fut.is_finished()) {                                                \
       FAIL() << "Future did not finish in a timely fashion";                  \
     }                                                                         \
-    const auto& _st = _fut.status();                                                 \
+    const auto& _st = _fut.status();                                          \
     if (!_st.ok()) {                                                          \
       FAIL() << "'" ARROW_STRINGIFY(expr) "' failed with " << _st.ToString(); \
     }                                                                         \
@@ -161,7 +161,7 @@
 
 #define ASSERT_FINISHES_ERR(ENUM, expr) \
   do {                                  \
-    const auto& fut = (expr);                \
+    const auto& fut = (expr);           \
     ASSERT_FINISHES_IMPL(fut);          \
     ASSERT_RAISES(ENUM, fut.status());  \
   } while (false)
