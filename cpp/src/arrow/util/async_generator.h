@@ -197,13 +197,13 @@ class MappingGenerator {
       if (should_trigger) {
         state->source().AddCallback(Callback{state});
       }
-
       if (maybe_next.ok()) {
-        if (IterationTraits<T>::IsEnd(*maybe_next)) {
+        const T& val = maybe_next.ValueUnsafe();
+        if (IterationTraits<T>::IsEnd(val)) {
           sink.MarkFinished(IterationTraits<V>::End());
         } else {
-          state->map(*maybe_next)
-              .AddCallback(MappedCallback{std::move(state), std::move(sink)});
+          Future<V> mapped_fut = state->map(val);
+          mapped_fut.AddCallback(MappedCallback{std::move(state), std::move(sink)});
         }
       } else {
         sink.MarkFinished(maybe_next.status());

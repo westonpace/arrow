@@ -923,8 +923,7 @@ TEST(TestAsyncUtil, SynchronousFinish) {
   Transformer<TestInt, TestStr> skip_all = [](TestInt value) { return TransformSkip(); };
   auto transformed = MakeAsyncGenerator(generator, skip_all);
   auto future = CollectAsyncGenerator(transformed);
-  ASSERT_TRUE(future.is_finished());
-  ASSERT_OK_AND_ASSIGN(auto actual, future.result());
+  ASSERT_FINISHES_OK_AND_ASSIGN(auto actual, future);
   ASSERT_EQ(std::vector<TestStr>(), actual);
 }
 
