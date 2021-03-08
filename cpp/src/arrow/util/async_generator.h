@@ -18,7 +18,6 @@
 #pragma once
 #include <queue>
 
-#include "arrow/type_fwd.h"
 #include "arrow/util/functional.h"
 #include "arrow/util/future.h"
 #include "arrow/util/iterator.h"
@@ -29,6 +28,32 @@
 #include "arrow/util/thread_pool.h"
 
 namespace arrow {
+
+/*
+The methods in this file create, modify, and utilize AsyncGenerator which is an iterator
+of futures.  This allows an asynchronous source (like file input) to be run through a
+pipeline in the same way that iterators can be used to create pipelined workflows.
+
+In order to support pipeline parallelism we introduce the concept of asynchronous
+reentrancy. This is different than synchronous reentrancy.  With synchronous code a
+function is reentrant if the function can be called again while a previous call to that
+function is still running.  Unless otherwise called out none of these generators are
+synchronously reentrant.  Care should be taken to avoid calling them in such a way (and
+the utilities Visit/Collect/Await take care to do this).
+
+Asynchronous reentrancy on the other hand means the function is called again before the
+future returned by the function completes (but after the call to get the future
+completes).  Some of these generators are async-reentrant while others (e.g. those that
+depend on ordered processing like decompression) are not.  Read the MakeXYZ function
+comments to determine which generators support async reentrancy.
+
+Note: Generators that are not asynchronously reentrant can still support readahead (\see
+MakeSerialReadaheadGenerator).
+
+Readahead operators, and some other operators, may introduce queueing.  Any operators that
+introduce buffering should detail the amount of buffering they introduce in their MakeXYZ
+function comments.
+*/
 
 template <typename T>
 struct IterationTraits<AsyncGenerator<T>> {
@@ -44,7 +69,7 @@ Future<T> AsyncGeneratorEnd() {
   return Future<T>::MakeFinished(IterationTraits<T>::End());
 }
 
-/// Iterates through a generator of futures, visiting the result of each one and
+/// \brief Iterates through a generator of futures, visiting the result of each one and
 /// returning a future that completes when all have been visited
 template <typename T>
 Future<> VisitAsyncGenerator(AsyncGenerator<T> generator,
@@ -80,12 +105,14 @@ Future<> VisitAsyncGenerator(AsyncGenerator<T> generator,
   return Loop(LoopBody{std::move(generator), std::move(visitor)});
 }
 
+/// \brief Waits for an async generator to complete, discarding results.
 template <typename T>
 Future<> AwaitAsyncGenerator(AsyncGenerator<T> generator) {
   std::function<Status(T)> visitor = [](...) { return Status::OK(); };
   return VisitAsyncGenerator(generator, visitor);
 }  // namespace arrow
 
+/// \brief Collects the results of an async generator into a vector
 template <typename T>
 Future<std::vector<T>> CollectAsyncGenerator(AsyncGenerator<T> generator) {
   auto vec = std::make_shared<std::vector<T>>();
@@ -108,6 +135,7 @@ Future<std::vector<T>> CollectAsyncGenerator(AsyncGenerator<T> generator) {
   return Loop(LoopBody{std::move(generator), std::move(vec)});
 }
 
+/// \see MakeMappedGenerator
 template <typename T, typename V>
 class MappingGenerator {
  public:
@@ -140,6 +168,17 @@ class MappingGenerator {
           mutex(),
           finished(false) {}
 
+    void Purge() {
+      // This might be called by an original callback (if the source iterator fails or
+      // ends) or by a mapped callback (if the map function fails or ends prematurely).
+      // Either way it should only be called once and after finished is set so there is no
+      // need to guard access to `waiting_jobs`.
+      while (!waiting_jobs.empty()) {
+        waiting_jobs.front().MarkFinished(IterationTraits<V>::End());
+        waiting_jobs.pop_front();
+      }
+    }
+
     AsyncGenerator<T> source;
     std::function<Future<V>(const T&)> map;
     std::deque<Future<V>> waiting_jobs;
@@ -162,10 +201,7 @@ class MappingGenerator {
       }
       sink.MarkFinished(maybe_next);
       if (should_purge) {
-        while (!state->waiting_jobs.empty()) {
-          state->waiting_jobs.front().MarkFinished(IterationTraits<V>::End());
-          state->waiting_jobs.pop_front();
-        }
+        state->Purge();
       }
     }
     std::shared_ptr<State> state;
@@ -189,10 +225,7 @@ class MappingGenerator {
         should_trigger = !end && !state->waiting_jobs.empty();
       }
       if (should_purge) {
-        while (!state->waiting_jobs.empty()) {
-          state->waiting_jobs.front().MarkFinished(IterationTraits<V>::End());
-          state->waiting_jobs.pop_front();
-        }
+        state->Purge();
       }
       if (should_trigger) {
         state->source().AddCallback(Callback{state});
@@ -245,6 +278,7 @@ AsyncGenerator<V> MakeMappedGenerator(AsyncGenerator<T> source_generator,
   return MappingGenerator<T, V>(std::move(source_generator), std::move(map));
 }
 
+/// \see MakeAsyncGenerator
 template <typename T, typename V>
 class TransformingGenerator {
   // The transforming generator state will be referenced as an async generator but will
@@ -351,6 +385,7 @@ AsyncGenerator<V> MakeAsyncGenerator(AsyncGenerator<T> generator,
   return TransformingGenerator<T, V>(generator, transformer);
 }
 
+/// \see MakeSerialReadaheadGenerator
 template <typename T>
 class SerialReadaheadGenerator {
  public:
@@ -466,6 +501,7 @@ AsyncGenerator<T> MakeSerialReadaheadGenerator(AsyncGenerator<T> source_generato
   return SerialReadaheadGenerator<T>(std::move(source_generator), max_readahead);
 }
 
+/// \see MakeReadaheadGenerator
 template <typename T>
 class ReadaheadGenerator {
  public:
@@ -553,6 +589,7 @@ AsyncGenerator<T> MakeVectorGenerator(std::vector<T> vec) {
   };
 }
 
+/// \see MakeMergeMapGenerator
 template <typename T>
 class MergeMapGenerator {
  public:
@@ -700,26 +737,20 @@ class MergeMapGenerator {
 /// source.
 ///
 /// This generator expects source to be async-reentrant regardless of whether this
-/// generator is async-reentrant or not (unless max_readahead is 1)
+/// generator is async-reentrant or not (unless max_subscriptions is 1)
 /// This generator will not pull from the individual subscriptions reentrantly.  Add
 /// readahead to the individual subscriptions if that is desired.
 /// This generator is async-reentrant
 ///
-/// This generator may queue up to max_readahead instances of T
+/// This generator may queue up to max_subscriptions instances of T
 template <typename T>
 AsyncGenerator<T> MakeMergeMapGenerator(AsyncGenerator<AsyncGenerator<T>> source,
-                                        int max_readahead) {
-  return MergeMapGenerator<T>(std::move(source), max_readahead);
+                                        int max_subscriptions) {
+  return MergeMapGenerator<T>(std::move(source), max_subscriptions);
 }
 
 /// \brief Creates a generator that takes in a stream of generators and pulls from each
 /// one in sequence.
-///
-/// Note: This is the equivalent of Rx::ConcatMap.  One could conceivably create the
-/// equivalent of Rx::MergeMap by pulling from `source` before the last emitted
-/// generator is exhausted.  Then ConcatMap folds into the special case of MergeMap with
-/// one max subscription (which is how its handled in Rx)  TODO(ARROW-11800).  Deferring
-/// that now for simplicity.
 ///
 /// This generator is async-reentrant but will never pull from source reentrantly and
 /// will never pull from any subscription reentrantly.
@@ -730,6 +761,7 @@ AsyncGenerator<T> MakeConcatMapGenerator(AsyncGenerator<AsyncGenerator<T>> sourc
   return MergeMapGenerator<T>(std::move(source), 1);
 }
 
+/// \see MakeTransferredGenerator
 template <typename T>
 class TransferringGenerator {
  public:
@@ -763,7 +795,7 @@ AsyncGenerator<T> MakeTransferredGenerator(AsyncGenerator<T> source,
                                            internal::Executor* executor) {
   return TransferringGenerator<T>(std::move(source), executor);
 }
-
+/// \see MakeIteratorGenerator
 template <typename T>
 class IteratorGenerator {
  public:
@@ -782,8 +814,7 @@ class IteratorGenerator {
 /// then use MakeBackgroundGenerator.  Otherwise, convert the underlying
 /// source to async.  This function is only around until we can conver the
 /// remaining table readers to async.  Once all uses of this generator have
-/// been removed it should be removed.
-/// FIXME - Add todo JIRA to remove this
+/// been removed it should be removed(ARROW-11909).
 ///
 /// This generator is not async-reentrant
 ///
@@ -793,6 +824,7 @@ AsyncGenerator<T> MakeIteratorGenerator(Iterator<T> it) {
   return IteratorGenerator<T>(std::move(it));
 }
 
+/// \see MakeBackgroundGenerator
 template <typename T>
 class BackgroundGenerator {
  public:
@@ -857,6 +889,7 @@ static Result<AsyncGenerator<T>> MakeBackgroundGenerator(
   return [background_iterator]() { return (*background_iterator)(); };
 }
 
+/// \see MakeGeneratorIterator
 template <typename T>
 class GeneratorIterator {
  public:
@@ -875,6 +908,12 @@ Result<Iterator<T>> MakeGeneratorIterator(AsyncGenerator<T> source) {
   return Iterator<T>(GeneratorIterator<T>(std::move(source)));
 }
 
+/// \brief Adds readahead to an iterator using a background thread.
+///
+/// Under the hood this is converting the iterator to a generator using
+/// MakeBackgroundGenerator, adding readahead to the converted generator with
+/// MakeReadaheadGenerator, and then converting back to an iterator using
+/// MakeGeneratorIterator.
 template <typename T>
 Result<Iterator<T>> MakeReadaheadIterator(Iterator<T> it, int readahead_queue_size) {
   ARROW_ASSIGN_OR_RAISE(auto io_executor, internal::ThreadPool::Make(1));
