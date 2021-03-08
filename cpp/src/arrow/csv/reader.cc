@@ -780,8 +780,6 @@ class SerialStreamingReader : public BaseStreamingReader,
     }
     auto self = shared_from_this();
     if (!block_generator_) {
-      // FIXME This fails if I use a Future<RB>(const Status&) callback.  Is there a
-      // proper syntax for "I don't care about result, just give me the status"?
       return SetupReader(self).Then([self](const Result<::arrow::detail::Empty>& res)
                                         -> Future<std::shared_ptr<RecordBatch>> {
         if (!res.ok()) {
