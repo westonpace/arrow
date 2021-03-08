@@ -786,10 +786,10 @@ class SerialStreamingReader : public BaseStreamingReader,
           self->eof_ = true;
           return res.status();
         }
-        return self->DoReadNext(std::move(self));
+        return self->DoReadNext(self);
       });
     } else {
-      return self->DoReadNext(std::move(self));
+      return self->DoReadNext(self);
     }
   };
 
