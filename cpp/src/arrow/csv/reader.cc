@@ -770,6 +770,16 @@ class SerialStreamingReader : public BaseStreamingReader,
         DecodeBatchAndUpdateSchema());
   }
 
+  Future<std::shared_ptr<RecordBatch>> ReadNextSkippingEmpty(
+      std::shared_ptr<SerialStreamingReader> self) {
+    return DoReadNext(self).Then([self](const std::shared_ptr<RecordBatch>& batch) {
+      if (batch != nullptr && batch->num_rows() == 0) {
+        return self->ReadNextSkippingEmpty(self);
+      }
+      return Future<std::shared_ptr<RecordBatch>>::MakeFinished(batch);
+    });
+  }
+
   Future<std::shared_ptr<RecordBatch>> ReadNextAsync() override {
     if (eof_) {
       return Future<std::shared_ptr<RecordBatch>>::MakeFinished(nullptr);
@@ -786,10 +796,10 @@ class SerialStreamingReader : public BaseStreamingReader,
           self->eof_ = true;
           return res.status();
         }
-        return self->DoReadNext(self);
+        return self->ReadNextSkippingEmpty(self);
       });
     } else {
-      return self->DoReadNext(self);
+      return self->ReadNextSkippingEmpty(self);
     }
   };
 
