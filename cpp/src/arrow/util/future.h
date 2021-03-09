@@ -178,7 +178,7 @@ class ARROW_EXPORT FutureWaiter {
 
   // HUGE_VAL isn't constexpr on Windows
   // https://social.msdn.microsoft.com/Forums/vstudio/en-US/47e8b9ff-b205-4189-968e-ee3bc3e2719f/constexpr-compile-error?forum=vclanguage
-  static const double kInfinity = HUGE_VAL;
+  static const double kInfinity;
 
   static std::unique_ptr<FutureWaiter> Make(Kind kind, std::vector<FutureImpl*> futures);
 
