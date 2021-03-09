@@ -910,7 +910,7 @@ class AsyncThreadedTableReader
     ARROW_ASSIGN_OR_RAISE(auto bg_it, MakeBackgroundGenerator(std::move(istream_it),
                                                               io_context_.executor()));
 
-    auto transferred_it = MakeTransferredGenerator(bg_it, cpu_executor_, true);
+    auto transferred_it = MakeTransferredGenerator(bg_it, cpu_executor_);
 
     int32_t block_queue_size = cpu_executor_->GetCapacity();
     auto rh_it =
