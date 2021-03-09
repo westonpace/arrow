@@ -930,14 +930,16 @@ AsyncGenerator<T> MakeConcatenatedGenerator(AsyncGenerator<AsyncGenerator<T>> so
 template <typename T>
 class TransferringGenerator {
  public:
-  explicit TransferringGenerator(AsyncGenerator<T> source, internal::Executor* executor)
-      : source_(std::move(source)), executor_(executor) {}
+  explicit TransferringGenerator(AsyncGenerator<T> source, internal::Executor* executor,
+                                 bool force_spawn)
+      : source_(std::move(source)), executor_(executor), force_spawn_(force_spawn) {}
 
-  Future<T> operator()() { return executor_->Transfer(source_()); }
+  Future<T> operator()() { return executor_->Transfer(source_(), force_spawn_); }
 
  private:
   AsyncGenerator<T> source_;
   internal::Executor* executor_;
+  bool force_spawn_;
 };
 
 /// \brief Transfers a future to an underlying executor.
@@ -952,13 +954,18 @@ class TransferringGenerator {
 /// Keep in mind that continuations called on an already completed future will
 /// always be run synchronously and so no transfer will happen in that case.
 ///
+/// If force_spawn is set to true then a thread task will be spawned even if the future is
+/// already completed.  This can be helpful if you know the continuations are going to be
+/// synchronous and expensive as it will allow other work to be done on free cores.
+///
 /// This generator is async reentrant if the source is
 ///
 /// This generator will not queue
 template <typename T>
 AsyncGenerator<T> MakeTransferredGenerator(AsyncGenerator<T> source,
-                                           internal::Executor* executor) {
-  return TransferringGenerator<T>(std::move(source), executor);
+                                           internal::Executor* executor,
+                                           bool force_spawn = false) {
+  return TransferringGenerator<T>(std::move(source), executor, force_spawn);
 }
 /// \see MakeIteratorGenerator
 template <typename T>

@@ -102,16 +102,34 @@ class ARROW_EXPORT Executor {
   // CPU heavy work off the I/O thread pool.  So the I/O task should transfer
   // the future to the CPU executor before returning.
   template <typename T>
-  Future<T> Transfer(Future<T> future) {
+  Future<T> Transfer(Future<T> future, bool force_spawn = false) {
     auto transferred = Future<T>::Make();
-    future.AddCallback([this, transferred](const Result<T>& result) mutable {
+    auto callback = [this, transferred](const Result<T>& result) mutable {
       auto spawn_status = Spawn([transferred, result]() mutable {
         transferred.MarkFinished(std::move(result));
       });
       if (!spawn_status.ok()) {
         transferred.MarkFinished(spawn_status);
       }
-    });
+    };
+    auto callback_factory = [&callback]() { return callback; };
+    auto callback_added = future.TryAddCallback(callback_factory);
+    if (!callback_added) {
+      if (force_spawn) {
+        auto spawn_status = Spawn([future, transferred]() mutable {
+          transferred.MarkFinished(future.result());
+        });
+        if (!spawn_status.ok()) {
+          transferred.MarkFinished(spawn_status);
+        }
+        return transferred;
+      } else {
+        // If the future is already finished and we aren't going to force spawn a thread
+        // then we don't need to add another layer of callback and can return the original
+        // future
+        return future;
+      }
+    }
     return transferred;
   }
 

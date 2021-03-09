@@ -709,7 +709,6 @@ class SerialStreamingReader : public BaseStreamingReader,
 
     auto transferred_it = MakeTransferredGenerator(bg_it, cpu_executor_);
 
-    // 2 is the minimum readahead.  FIXME: profile
     auto rh_it = MakeSerialReadaheadGenerator(std::move(transferred_it), 2);
     buffer_generator_ = CSVBufferIterator::MakeAsync(std::move(rh_it));
     task_group_ = internal::TaskGroup::MakeSerial(io_context_.stop_token());
@@ -911,7 +910,7 @@ class AsyncThreadedTableReader
     ARROW_ASSIGN_OR_RAISE(auto bg_it, MakeBackgroundGenerator(std::move(istream_it),
                                                               io_context_.executor()));
 
-    auto transferred_it = MakeTransferredGenerator(bg_it, cpu_executor_);
+    auto transferred_it = MakeTransferredGenerator(bg_it, cpu_executor_, true);
 
     int32_t block_queue_size = cpu_executor_->GetCapacity();
     auto rh_it =
