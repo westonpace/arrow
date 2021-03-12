@@ -724,7 +724,7 @@ class SerialStreamingReader : public BaseStreamingReader {
 
     if (!source_eof_) {
       ARROW_ASSIGN_OR_RAISE(auto maybe_block, block_iterator_.Next());
-      if (!IsIterationEnd<CSVBlock>(maybe_block)) {
+      if (!IsIterationEnd(maybe_block)) {
         last_block_index_ = maybe_block.block_index;
         auto maybe_parsed = ParseAndInsert(maybe_block.partial, maybe_block.completion,
                                            maybe_block.buffer, maybe_block.block_index,
@@ -806,7 +806,7 @@ class SerialTableReader : public BaseTableReader {
       RETURN_NOT_OK(stop_token_.Poll());
 
       ARROW_ASSIGN_OR_RAISE(auto maybe_block, block_iterator.Next());
-      if (IsIterationEnd<CSVBlock>(maybe_block)) {
+      if (IsIterationEnd(maybe_block)) {
         // EOF
         break;
       }

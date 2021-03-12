@@ -112,7 +112,7 @@ class Iterator : public util::EqualityComparable<Iterator<T>> {
     for (;;) {
       ARROW_ASSIGN_OR_RAISE(auto value, Next());
 
-      if (IsIterationEnd<T>(value)) break;
+      if (IsIterationEnd(value)) break;
 
       ARROW_RETURN_NOT_OK(visitor(std::move(value)));
     }
@@ -283,7 +283,7 @@ class TransformIterator {
       }
       auto next = *next_res;
       if (next.ReadyForNext()) {
-        if (IsIterationEnd<T>(*last_value_)) {
+        if (IsIterationEnd(*last_value_)) {
           finished_ = true;
         }
         last_value_.reset();
@@ -423,7 +423,7 @@ class MapIterator {
   Result<O> Next() {
     ARROW_ASSIGN_OR_RAISE(I i, it_.Next());
 
-    if (IsIterationEnd<I>(i)) {
+    if (IsIterationEnd(i)) {
       return IterationTraits<O>::End();
     }
 
@@ -485,7 +485,7 @@ struct FilterIterator {
       for (;;) {
         ARROW_ASSIGN_OR_RAISE(From i, it_.Next());
 
-        if (IsIterationEnd<From>(i)) {
+        if (IsIterationEnd(i)) {
           return IterationTraits<To>::End();
         }
 
@@ -521,12 +521,12 @@ class FlattenIterator {
   explicit FlattenIterator(Iterator<Iterator<T>> it) : parent_(std::move(it)) {}
 
   Result<T> Next() {
-    if (IsIterationEnd<Iterator<T>>(child_)) {
+    if (IsIterationEnd(child_)) {
       // Pop from parent's iterator.
       ARROW_ASSIGN_OR_RAISE(child_, parent_.Next());
 
       // Check if final iteration reached.
-      if (IsIterationEnd<Iterator<T>>(child_)) {
+      if (IsIterationEnd(child_)) {
         return IterationTraits<T>::End();
       }
 
@@ -535,7 +535,7 @@ class FlattenIterator {
 
     // Pop from child_ and check for depletion.
     ARROW_ASSIGN_OR_RAISE(T out, child_.Next());
-    if (IsIterationEnd<T>(out)) {
+    if (IsIterationEnd(out)) {
       // Reset state such that we pop from parent on the recursive call
       child_ = IterationTraits<Iterator<T>>::End();
 

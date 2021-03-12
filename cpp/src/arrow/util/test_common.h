@@ -66,7 +66,7 @@ inline Iterator<T> VectorIt(std::vector<T> v) {
 template <typename T>
 inline void AssertIteratorExhausted(Iterator<T>& it) {
   ASSERT_OK_AND_ASSIGN(T next, it.Next());
-  ASSERT_TRUE(IsIterationEnd<T>(next));
+  ASSERT_TRUE(IsIterationEnd(next));
 }
 
 Transformer<TestInt, TestStr> MakeFilter(std::function<bool(TestInt&)> filter);
