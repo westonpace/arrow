@@ -269,7 +269,7 @@ TEST(TestIteratorTransform, Abort) {
   ASSERT_OK(transformed.Next());
   ASSERT_RAISES(Invalid, transformed.Next());
   ASSERT_OK_AND_ASSIGN(auto third, transformed.Next());
-  ASSERT_TRUE(IsIterationEnd<TestStr>(third));
+  ASSERT_TRUE(IsIterationEnd(third));
 }
 
 template <typename T>

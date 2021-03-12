@@ -76,7 +76,7 @@ Future<> VisitAsyncGenerator(AsyncGenerator<T> generator,
   struct LoopBody {
     struct Callback {
       Result<ControlFlow<detail::Empty>> operator()(const T& result) {
-        if (IsIterationEnd<T>(result)) {
+        if (IsIterationEnd(result)) {
           return Break(detail::Empty());
         } else {
           auto visited = visitor(result);
@@ -120,7 +120,7 @@ Future<std::vector<T>> CollectAsyncGenerator(AsyncGenerator<T> generator) {
       auto next = generator_();
       auto vec = vec_;
       return next.Then([vec](const T& result) -> Result<ControlFlow<std::vector<T>>> {
-        if (IsIterationEnd<T>(result)) {
+        if (IsIterationEnd(result)) {
           return Break(*vec);
         } else {
           vec->push_back(result);
@@ -189,7 +189,7 @@ class MappingGenerator {
 
   struct MappedCallback {
     void operator()(const Result<V>& maybe_next) {
-      bool end = !maybe_next.ok() || IsIterationEnd<V>(*maybe_next);
+      bool end = !maybe_next.ok() || IsIterationEnd(*maybe_next);
       bool should_purge = false;
       if (end) {
         {
@@ -210,7 +210,7 @@ class MappingGenerator {
   struct Callback {
     void operator()(const Result<T>& maybe_next) {
       Future<V> sink;
-      bool end = !maybe_next.ok() || IsIterationEnd<T>(*maybe_next);
+      bool end = !maybe_next.ok() || IsIterationEnd(*maybe_next);
       bool should_purge = false;
       bool should_trigger;
       {
@@ -231,7 +231,7 @@ class MappingGenerator {
       }
       if (maybe_next.ok()) {
         const T& val = maybe_next.ValueUnsafe();
-        if (IsIterationEnd<T>(val)) {
+        if (IsIterationEnd(val)) {
           sink.MarkFinished(IterationTraits<V>::End());
         } else {
           Future<V> mapped_fut = state->map(val);
@@ -332,7 +332,7 @@ class TransformingGenerator {
       if (!finished_ && last_value_.has_value()) {
         ARROW_ASSIGN_OR_RAISE(TransformFlow<V> next, transformer_(*last_value_));
         if (next.ReadyForNext()) {
-          if (IsIterationEnd<T>(*last_value_)) {
+          if (IsIterationEnd(*last_value_)) {
             finished_ = true;
           }
           last_value_.reset();
@@ -469,7 +469,7 @@ class SerialReadaheadGenerator {
         return maybe_next;
       }
       const auto& next = *maybe_next;
-      if (IsIterationEnd<T>(next)) {
+      if (IsIterationEnd(next)) {
         state_->finished_.store(true);
         return maybe_next;
       }
@@ -511,7 +511,7 @@ class ReadaheadGenerator {
       if (!next_result.ok()) {
         finished->store(true);
       } else {
-        if (IsIterationEnd<T>(*next_result)) {
+        if (IsIterationEnd(*next_result)) {
           *finished = true;
         }
       }
@@ -665,7 +665,7 @@ class MergedGenerator {
       bool finished = false;
       Future<T> sink;
       if (maybe_next.ok()) {
-        finished = IsIterationEnd<T>(*maybe_next);
+        finished = IsIterationEnd(*maybe_next);
         {
           auto guard = state->mutex.Lock();
           if (!finished) {
@@ -698,7 +698,7 @@ class MergedGenerator {
       bool should_continue = false;
       {
         auto guard = state->mutex.Lock();
-        if (!maybe_next.ok() || IsIterationEnd<AsyncGenerator<T>>(*maybe_next)) {
+        if (!maybe_next.ok() || IsIterationEnd(*maybe_next)) {
           state->source_exhausted = true;
           if (--state->num_active_subscriptions == 0) {
             state->finished = true;
@@ -856,7 +856,7 @@ class BackgroundGenerator {
         return IterationTraits<T>::End();
       }
       auto next = it_->Next();
-      if (!next.ok() || IsIterationEnd<T>(*next)) {
+      if (!next.ok() || IsIterationEnd(*next)) {
         *done_ = true;
       }
       return next;

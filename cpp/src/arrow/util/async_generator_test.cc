@@ -102,7 +102,7 @@ void AssertAsyncGeneratorMatch(std::vector<T> expected, AsyncGenerator<T> actual
 template <typename T>
 void AssertGeneratorExhausted(AsyncGenerator<T>& gen) {
   ASSERT_FINISHES_OK_AND_ASSIGN(auto next, gen());
-  ASSERT_TRUE(IsIterationEnd<T>(next));
+  ASSERT_TRUE(IsIterationEnd(next));
 }
 
 // --------------------------------------------------------------------
@@ -562,10 +562,10 @@ TEST(TestAsyncUtil, BackgroundRepeatEnd) {
   auto two = background_gen();
 
   ASSERT_FINISHES_OK_AND_ASSIGN(auto one_fin, one);
-  ASSERT_TRUE(IsIterationEnd<TestInt>(one_fin));
+  ASSERT_TRUE(IsIterationEnd(one_fin));
 
   ASSERT_FINISHES_OK_AND_ASSIGN(auto two_fin, two);
-  ASSERT_TRUE(IsIterationEnd<TestInt>(two_fin));
+  ASSERT_TRUE(IsIterationEnd(two_fin));
 }
 
 TEST(TestAsyncUtil, CompleteBackgroundStressTest) {
@@ -701,7 +701,7 @@ TEST(TestAsyncUtil, Readahead) {
   // Next should be end
   auto last = readahead();
   ASSERT_FINISHES_OK_AND_ASSIGN(auto last_val, last);
-  ASSERT_TRUE(IsIterationEnd<TestInt>(last_val));
+  ASSERT_TRUE(IsIterationEnd(last_val));
 }
 
 TEST(TestAsyncUtil, ReadaheadFailed) {
@@ -731,7 +731,7 @@ TEST(TestAsyncUtil, ReadaheadFailed) {
 
   // It's possible that finished was set quickly and there
   // are only 10 elements
-  if (IsIterationEnd<TestInt>(after)) {
+  if (IsIterationEnd(after)) {
     return;
   }
 
@@ -740,7 +740,7 @@ TEST(TestAsyncUtil, ReadaheadFailed) {
   ASSERT_EQ(TestInt(10), after);
   // There can't be 12 elements because SleepABit will prevent it
   ASSERT_FINISHES_OK_AND_ASSIGN(auto definitely_last, readahead());
-  ASSERT_TRUE(IsIterationEnd<TestInt>(definitely_last));
+  ASSERT_TRUE(IsIterationEnd(definitely_last));
 }
 
 TEST(TestAsyncIteratorTransform, SkipSome) {
