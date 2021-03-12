@@ -32,7 +32,7 @@ TestStr::TestStr() : value("") {}
 TestStr::TestStr(const std::string& s) : value(s) {}  // NOLINT runtime/explicit
 TestStr::TestStr(const char* s) : value(s) {}         // NOLINT runtime/explicit
 TestStr::TestStr(const TestInt& test_int) {
-  if (IsIterationEnd<TestInt>(test_int)) {
+  if (IsIterationEnd(test_int)) {
     value = "";
   } else {
     value = std::to_string(test_int.value);
