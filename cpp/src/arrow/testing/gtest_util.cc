@@ -597,6 +597,8 @@ void SleepFor(double seconds) {
       std::chrono::nanoseconds(static_cast<int64_t>(seconds * 1e9)));
 }
 
+void SleepABit() { SleepFor(1e-3); }
+
 void BusyWait(double seconds, std::function<bool()> predicate) {
   const double period = 0.001;
   for (int i = 0; !predicate() && i * period < seconds; ++i) {
