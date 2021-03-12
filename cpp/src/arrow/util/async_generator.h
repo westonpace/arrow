@@ -18,7 +18,6 @@
 #pragma once
 #include <queue>
 
-#include "arrow/type_fwd.h"
 #include "arrow/util/functional.h"
 #include "arrow/util/future.h"
 #include "arrow/util/iterator.h"
@@ -115,12 +114,6 @@ Future<> DiscardAllFromAsyncGenerator(AsyncGenerator<T> generator) {
 }
 
 /// \brief Collects the results of an async generator into a vector
-template <typename T>
-Future<> AwaitAsyncGenerator(AsyncGenerator<T> generator) {
-  std::function<Status(T)> visitor = [](...) { return Status::OK(); };
-  return VisitAsyncGenerator(generator, visitor);
-}  // namespace arrow
-
 template <typename T>
 Future<std::vector<T>> CollectAsyncGenerator(AsyncGenerator<T> generator) {
   auto vec = std::make_shared<std::vector<T>>();
@@ -287,143 +280,6 @@ AsyncGenerator<V> MakeMappedGenerator(AsyncGenerator<T> source_generator,
 }
 
 /// \see MakeAsyncGenerator
-template <typename T, typename V>
-class MappingGenerator {
- public:
-  MappingGenerator(AsyncGenerator<T> source, std::function<Future<V>(const T&)> map)
-      : state_(std::make_shared<State>(std::move(source), std::move(map))) {}
-
-  Future<V> operator()() {
-    auto future = Future<V>::Make();
-    bool should_trigger;
-    {
-      auto guard = state_->mutex.Lock();
-      if (state_->finished) {
-        return Future<V>::MakeFinished(IterationTraits<V>::End());
-      }
-      should_trigger = state_->waiting_jobs.empty();
-      state_->waiting_jobs.push_back(future);
-    }
-    if (should_trigger) {
-      state_->source().AddCallback(Callback{state_});
-    }
-    return future;
-  }
-
- private:
-  struct State {
-    State(AsyncGenerator<T> source, std::function<Future<V>(const T&)> map)
-        : source(std::move(source)),
-          map(std::move(map)),
-          waiting_jobs(),
-          mutex(),
-          finished(false) {}
-
-    AsyncGenerator<T> source;
-    std::function<Future<V>(const T&)> map;
-    std::deque<Future<V>> waiting_jobs;
-    util::Mutex mutex;
-    bool finished;
-  };
-
-  struct Callback;
-
-  struct MappedCallback {
-    void operator()(const Result<V>& maybe_next) {
-      bool end = !maybe_next.ok() || IterationTraits<V>::IsEnd(*maybe_next);
-      bool should_purge = false;
-      if (end) {
-        {
-          auto guard = state->mutex.Lock();
-          should_purge = !state->finished;
-          state->finished = true;
-        }
-      }
-      sink.MarkFinished(maybe_next);
-      if (should_purge) {
-        while (!state->waiting_jobs.empty()) {
-          state->waiting_jobs.front().MarkFinished(IterationTraits<V>::End());
-          state->waiting_jobs.pop_front();
-        }
-      }
-    }
-    std::shared_ptr<State> state;
-    Future<V> sink;
-  };
-
-  struct Callback {
-    void operator()(const Result<T>& maybe_next) {
-      Future<V> sink;
-      bool end = !maybe_next.ok() || IterationTraits<T>::IsEnd(*maybe_next);
-      bool should_purge = false;
-      bool should_trigger;
-      {
-        auto guard = state->mutex.Lock();
-        if (end) {
-          should_purge = !state->finished;
-          state->finished = true;
-        }
-        sink = state->waiting_jobs.front();
-        state->waiting_jobs.pop_front();
-        should_trigger = !end && !state->waiting_jobs.empty();
-      }
-      if (should_purge) {
-        while (!state->waiting_jobs.empty()) {
-          state->waiting_jobs.front().MarkFinished(IterationTraits<V>::End());
-          state->waiting_jobs.pop_front();
-        }
-      }
-      if (should_trigger) {
-        state->source().AddCallback(Callback{state});
-      }
-
-      if (maybe_next.ok()) {
-        if (IterationTraits<T>::IsEnd(*maybe_next)) {
-          sink.MarkFinished(IterationTraits<V>::End());
-        } else {
-          state->map(*maybe_next)
-              .AddCallback(MappedCallback{std::move(state), std::move(sink)});
-        }
-      } else {
-        sink.MarkFinished(maybe_next.status());
-      }
-    }
-
-    std::shared_ptr<State> state;
-  };
-
-  std::shared_ptr<State> state_;
-};
-
-/// \brief Creates a generator that will apply the map function to each element of
-/// source.  The map function is not called on the end token.
-///
-/// Note: This function makes a copy of `map` for each item
-/// Note: Errors returned from the `map` function will be propagated
-///
-/// If the source generator is async-reentrant then this generator will be also
-template <typename T, typename V>
-AsyncGenerator<V> MakeMappedGenerator(AsyncGenerator<T> source_generator,
-                                      std::function<Result<V>(const T&)> map) {
-  std::function<Future<V>(const T&)> future_map = [map](const T& val) -> Future<V> {
-    return Future<V>::MakeFinished(map(val));
-  };
-  return MappingGenerator<T, V>(std::move(source_generator), std::move(future_map));
-}
-template <typename T, typename V>
-AsyncGenerator<V> MakeMappedGenerator(AsyncGenerator<T> source_generator,
-                                      std::function<V(const T&)> map) {
-  std::function<Future<V>(const T&)> maybe_future_map = [map](const T& val) -> Future<V> {
-    return Future<V>::MakeFinished(map(val));
-  };
-  return MappingGenerator<T, V>(std::move(source_generator), std::move(maybe_future_map));
-}
-template <typename T, typename V>
-AsyncGenerator<V> MakeMappedGenerator(AsyncGenerator<T> source_generator,
-                                      std::function<Future<V>(const T&)> map) {
-  return MappingGenerator<T, V>(std::move(source_generator), std::move(map));
-}
-
 template <typename T, typename V>
 class TransformingGenerator {
   // The transforming generator state will be referenced as an async generator but will

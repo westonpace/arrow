@@ -886,11 +886,11 @@ class AsyncThreadedTableReader
  public:
   using BaseTableReader::BaseTableReader;
 
-  AsyncThreadedTableReader(std::shared_ptr<io::InputStream> input,
+  AsyncThreadedTableReader(io::IOContext io_context,
+                           std::shared_ptr<io::InputStream> input,
                            const ReadOptions& read_options,
                            const ParseOptions& parse_options,
-                           const ConvertOptions& convert_options, Executor* cpu_executor,
-                           io::IOContext io_context)
+                           const ConvertOptions& convert_options, Executor* cpu_executor)
       : BaseTableReader(std::move(io_context), input, read_options, parse_options,
                         convert_options),
         cpu_executor_(cpu_executor) {}
@@ -991,10 +991,10 @@ Result<std::shared_ptr<TableReader>> MakeTableReader(
   if (read_options.use_threads) {
     auto cpu_executor = internal::GetCpuThreadPool();
     reader = std::make_shared<AsyncThreadedTableReader>(
-        input, read_options, parse_options, convert_options, cpu_executor, io_context);
+        io_context, input, read_options, parse_options, convert_options, cpu_executor);
   } else {
-    reader = std::make_shared<SerialTableReader>(
-        io_context, input, read_options, parse_options, convert_options, io_context);
+    reader = std::make_shared<SerialTableReader>(io_context, input, read_options,
+                                                 parse_options, convert_options);
   }
   RETURN_NOT_OK(reader->Init());
   return reader;

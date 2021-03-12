@@ -183,7 +183,7 @@ Result<TableReaderFactory> MakeStreamingFactory() {
     read_options.block_size = 1 << 10;
     ARROW_ASSIGN_OR_RAISE(
         auto streaming_reader,
-        StreamingReader::Make(io::default_io_context().pool(), input_stream, read_options,
+        StreamingReader::Make(io::default_io_context(), input_stream, read_options,
                               ParseOptions::Defaults(), ConvertOptions::Defaults()));
     return std::make_shared<StreamingReaderAsTableReader>(std::move(streaming_reader));
   };
