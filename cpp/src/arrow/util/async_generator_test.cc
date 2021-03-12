@@ -167,7 +167,7 @@ class ReentrantCheckerGuard {
     } else {
       owner_ = false;
     }
-  };
+  }
   ReentrantCheckerGuard& operator=(ReentrantCheckerGuard&& other) {
     checker_ = other.checker_;
     if (other.owner_) {
