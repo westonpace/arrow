@@ -770,12 +770,7 @@ TEST(TestAsyncUtil, MapReentrant) {
   auto one = mapped();
   auto two = mapped();
 
-  for (int i = 0; i < 1000; i++) {
-    SleepABit();
-    if (map_tasks_running.load() >= 2) {
-      break;
-    }
-  }
+  BusyWait(10, [&] { return map_tasks_running.load() == 2; });
   EXPECT_EQ(2, map_tasks_running.load());
   EXPECT_EQ(2, tracker.num_read());
 
@@ -825,13 +820,13 @@ TEST(TestAsyncUtil, MaybeMapFail) {
   ASSERT_FINISHES_ERR(Invalid, CollectAsyncGenerator(mapped));
 }
 
-TEST(TestAsyncUtil, ConcatMap) {
+TEST(TestAsyncUtil, Concatenated) {
   std::vector<TestInt> inputOne{1, 2, 3};
   std::vector<TestInt> inputTwo{4, 5, 6};
   std::vector<TestInt> expected{1, 2, 3, 4, 5, 6};
   auto gen = AsyncVectorIt<AsyncGenerator<TestInt>>(
       {AsyncVectorIt<TestInt>(inputOne), AsyncVectorIt<TestInt>(inputTwo)});
-  auto concat = MakeConcatMapGenerator(gen);
+  auto concat = MakeConcatenatedGenerator(gen);
   AssertAsyncGeneratorMatch(expected, concat);
 }
 
@@ -858,11 +853,11 @@ class GeneratorTestFixture : public ::testing::TestWithParam<bool> {
   }
 };
 
-TEST_P(GeneratorTestFixture, MergeMap) {
+TEST_P(GeneratorTestFixture, Merged) {
   auto gen = AsyncVectorIt<AsyncGenerator<TestInt>>(
       {MakeSource({1, 2, 3}), MakeSource({4, 5, 6})});
 
-  auto concat_gen = MakeMergeMapGenerator(gen, 10);
+  auto concat_gen = MakeMergedGenerator(gen, 10);
   ASSERT_FINISHES_OK_AND_ASSIGN(auto concat, CollectAsyncGenerator(concat_gen));
   auto concat_ints =
       internal::MapVector([](const TestInt& val) { return val.value; }, concat);
@@ -872,13 +867,12 @@ TEST_P(GeneratorTestFixture, MergeMap) {
   ASSERT_EQ(expected, concat_set);
 }
 
-TEST_P(GeneratorTestFixture, MergeMapLimitedSubscriptions) {
+TEST_P(GeneratorTestFixture, MergedLimitedSubscriptions) {
   auto gen = AsyncVectorIt<AsyncGenerator<TestInt>>(
       {MakeSource({1, 2}), MakeSource({3, 4}), MakeSource({5, 6, 7, 8}),
        MakeSource({9, 10, 11, 12})});
   TrackingGenerator<AsyncGenerator<TestInt>> tracker(std::move(gen));
-  auto merged =
-      MakeMergeMapGenerator(AsyncGenerator<AsyncGenerator<TestInt>>(tracker), 2);
+  auto merged = MakeMergedGenerator(AsyncGenerator<AsyncGenerator<TestInt>>(tracker), 2);
 
   SleepABit();
   // Lazy pull, should not start until first pull
@@ -914,7 +908,7 @@ TEST_P(GeneratorTestFixture, MergeMapLimitedSubscriptions) {
   AssertGeneratorExhausted(merged);
 }
 
-TEST_P(GeneratorTestFixture, MergeMapStress) {
+TEST_P(GeneratorTestFixture, MergedStress) {
   constexpr int NGENERATORS = 10;
   constexpr int NITEMS = 10;
   for (int i = 0; i < GetNumItersForStress(); i++) {
@@ -927,13 +921,13 @@ TEST_P(GeneratorTestFixture, MergeMapStress) {
     }
     AsyncGenerator<AsyncGenerator<TestInt>> source_gen = AsyncVectorIt(sources);
 
-    auto merged = MakeMergeMapGenerator(source_gen, 4);
+    auto merged = MakeMergedGenerator(source_gen, 4);
     ASSERT_FINISHES_OK_AND_ASSIGN(auto items, CollectAsyncGenerator(merged));
     ASSERT_EQ(NITEMS * NGENERATORS, items.size());
   }
 }
 
-TEST_P(GeneratorTestFixture, MergeMapParallelStress) {
+TEST_P(GeneratorTestFixture, MergedParallelStress) {
   constexpr int NGENERATORS = 10;
   constexpr int NITEMS = 10;
   for (int i = 0; i < GetNumItersForStress(); i++) {
@@ -941,7 +935,7 @@ TEST_P(GeneratorTestFixture, MergeMapParallelStress) {
     for (int j = 0; j < NGENERATORS; j++) {
       sources.push_back(MakeSource(RangeVector(NITEMS)));
     }
-    auto merged = MakeMergeMapGenerator(AsyncVectorIt(sources), 4);
+    auto merged = MakeMergedGenerator(AsyncVectorIt(sources), 4);
     merged = MakeReadaheadGenerator(merged, 4);
     ASSERT_FINISHES_OK_AND_ASSIGN(auto items, CollectAsyncGenerator(merged));
     ASSERT_EQ(NITEMS * NGENERATORS, items.size());
