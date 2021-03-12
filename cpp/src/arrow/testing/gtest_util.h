@@ -473,6 +473,9 @@ inline void BitmapFromVector(const std::vector<T>& is_valid,
 ARROW_TESTING_EXPORT
 void SleepFor(double seconds);
 
+ARROW_TESTING_EXPORT
+void SleepABit();
+
 // Wait until predicate is true or timeout in seconds expires.
 ARROW_TESTING_EXPORT
 void BusyWait(double seconds, std::function<bool()> predicate);
