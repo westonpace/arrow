@@ -17,13 +17,11 @@
 
 #pragma once
 
-#include <functional>
-
 namespace arrow {
 
 namespace detail {
 struct Empty;
-}
+}  // namespace detail
 
 template <typename T = detail::Empty>
 class WeakFuture;

@@ -29,31 +29,30 @@
 
 namespace arrow {
 
-/*
-The methods in this file create, modify, and utilize AsyncGenerator which is an iterator
-of futures.  This allows an asynchronous source (like file input) to be run through a
-pipeline in the same way that iterators can be used to create pipelined workflows.
-
-In order to support pipeline parallelism we introduce the concept of asynchronous
-reentrancy. This is different than synchronous reentrancy.  With synchronous code a
-function is reentrant if the function can be called again while a previous call to that
-function is still running.  Unless otherwise called out none of these generators are
-synchronously reentrant.  Care should be taken to avoid calling them in such a way (and
-the utilities Visit/Collect/Await take care to do this).
-
-Asynchronous reentrancy on the other hand means the function is called again before the
-future returned by the function completes (but after the call to get the future
-completes).  Some of these generators are async-reentrant while others (e.g. those that
-depend on ordered processing like decompression) are not.  Read the MakeXYZ function
-comments to determine which generators support async reentrancy.
-
-Note: Generators that are not asynchronously reentrant can still support readahead (\see
-MakeSerialReadaheadGenerator).
-
-Readahead operators, and some other operators, may introduce queueing.  Any operators that
-introduce buffering should detail the amount of buffering they introduce in their MakeXYZ
-function comments.
-*/
+// The methods in this file create, modify, and utilize AsyncGenerator which is an
+// iterator of futures.  This allows an asynchronous source (like file input) to be run
+// through a pipeline in the same way that iterators can be used to create pipelined
+// workflows.
+//
+// In order to support pipeline parallelism we introduce the concept of asynchronous
+// reentrancy. This is different than synchronous reentrancy.  With synchronous code a
+// function is reentrant if the function can be called again while a previous call to that
+// function is still running.  Unless otherwise specified none of these generators are
+// synchronously reentrant.  Care should be taken to avoid calling them in such a way (and
+// the utilities Visit/Collect/Await take care to do this).
+//
+// Asynchronous reentrancy on the other hand means the function is called again before the
+// future returned by the function is marekd finished (but after the call to get the
+// future returns).  Some of these generators are async-reentrant while others (e.g.
+// those that depend on ordered processing like decompression) are not.  Read the MakeXYZ
+// function comments to determine which generators support async reentrancy.
+//
+// Note: Generators that are not asynchronously reentrant can still support readahead
+// (\see MakeSerialReadaheadGenerator).
+//
+// Readahead operators, and some other operators, may introduce queueing.  Any operators
+// that introduce buffering should detail the amount of buffering they introduce in their
+// MakeXYZ function comments.
 
 template <typename T>
 struct IterationTraits<AsyncGenerator<T>> {
@@ -77,7 +76,7 @@ Future<> VisitAsyncGenerator(AsyncGenerator<T> generator,
   struct LoopBody {
     struct Callback {
       Result<ControlFlow<detail::Empty>> operator()(const T& result) {
-        if (IterationTraits<T>::IsEnd(result)) {
+        if (IsIterationEnd<T>(result)) {
           return Break(detail::Empty());
         } else {
           auto visited = visitor(result);
@@ -107,10 +106,10 @@ Future<> VisitAsyncGenerator(AsyncGenerator<T> generator,
 
 /// \brief Waits for an async generator to complete, discarding results.
 template <typename T>
-Future<> AwaitAsyncGenerator(AsyncGenerator<T> generator) {
+Future<> DiscardAllFromAsyncGenerator(AsyncGenerator<T> generator) {
   std::function<Status(T)> visitor = [](...) { return Status::OK(); };
   return VisitAsyncGenerator(generator, visitor);
-}  // namespace arrow
+}
 
 /// \brief Collects the results of an async generator into a vector
 template <typename T>
@@ -121,7 +120,7 @@ Future<std::vector<T>> CollectAsyncGenerator(AsyncGenerator<T> generator) {
       auto next = generator_();
       auto vec = vec_;
       return next.Then([vec](const T& result) -> Result<ControlFlow<std::vector<T>>> {
-        if (IterationTraits<T>::IsEnd(result)) {
+        if (IsIterationEnd<T>(result)) {
           return Break(*vec);
         } else {
           vec->push_back(result);
@@ -148,7 +147,7 @@ class MappingGenerator {
     {
       auto guard = state_->mutex.Lock();
       if (state_->finished) {
-        return Future<V>::MakeFinished(IterationTraits<V>::End());
+        return AsyncGeneratorEnd<V>();
       }
       should_trigger = state_->waiting_jobs.empty();
       state_->waiting_jobs.push_back(future);
@@ -190,7 +189,7 @@ class MappingGenerator {
 
   struct MappedCallback {
     void operator()(const Result<V>& maybe_next) {
-      bool end = !maybe_next.ok() || IterationTraits<V>::IsEnd(*maybe_next);
+      bool end = !maybe_next.ok() || IsIterationEnd<V>(*maybe_next);
       bool should_purge = false;
       if (end) {
         {
@@ -211,7 +210,7 @@ class MappingGenerator {
   struct Callback {
     void operator()(const Result<T>& maybe_next) {
       Future<V> sink;
-      bool end = !maybe_next.ok() || IterationTraits<T>::IsEnd(*maybe_next);
+      bool end = !maybe_next.ok() || IsIterationEnd<T>(*maybe_next);
       bool should_purge = false;
       bool should_trigger;
       {
@@ -232,7 +231,7 @@ class MappingGenerator {
       }
       if (maybe_next.ok()) {
         const T& val = maybe_next.ValueUnsafe();
-        if (IterationTraits<T>::IsEnd(val)) {
+        if (IsIterationEnd<T>(val)) {
           sink.MarkFinished(IterationTraits<V>::End());
         } else {
           Future<V> mapped_fut = state->map(val);
@@ -333,7 +332,7 @@ class TransformingGenerator {
       if (!finished_ && last_value_.has_value()) {
         ARROW_ASSIGN_OR_RAISE(TransformFlow<V> next, transformer_(*last_value_));
         if (next.ReadyForNext()) {
-          if (IterationTraits<T>::IsEnd(*last_value_)) {
+          if (IsIterationEnd<T>(*last_value_)) {
             finished_ = true;
           }
           last_value_.reset();
@@ -470,7 +469,7 @@ class SerialReadaheadGenerator {
         return maybe_next;
       }
       const auto& next = *maybe_next;
-      if (IterationTraits<T>::IsEnd(next)) {
+      if (IsIterationEnd<T>(next)) {
         state_->finished_.store(true);
         return maybe_next;
       }
@@ -512,7 +511,7 @@ class ReadaheadGenerator {
       if (!next_result.ok()) {
         finished->store(true);
       } else {
-        if (IterationTraits<T>::IsEnd(*next_result)) {
+        if (IsIterationEnd<T>(*next_result)) {
           *finished = true;
         }
       }
@@ -583,7 +582,7 @@ AsyncGenerator<T> MakeVectorGenerator(std::vector<T> vec) {
   return [state]() {
     auto idx = state->vec_idx.fetch_add(1);
     if (idx >= state->vec.size()) {
-      return Future<T>::MakeFinished(IterationTraits<T>::End());
+      return AsyncGeneratorEnd<T>();
     }
     return Future<T>::MakeFinished(state->vec[idx]);
   };
@@ -666,7 +665,7 @@ class MergeMapGenerator {
       bool finished = false;
       Future<T> sink;
       if (maybe_next.ok()) {
-        finished = IterationTraits<T>::IsEnd(*maybe_next);
+        finished = IsIterationEnd<T>(*maybe_next);
         {
           auto guard = state->mutex.Lock();
           if (!finished) {
@@ -699,7 +698,7 @@ class MergeMapGenerator {
       bool should_continue = false;
       {
         auto guard = state->mutex.Lock();
-        if (!maybe_next.ok() || IterationTraits<AsyncGenerator<T>>::IsEnd(*maybe_next)) {
+        if (!maybe_next.ok() || IsIterationEnd<AsyncGenerator<T>>(*maybe_next)) {
           state->source_exhausted = true;
           if (--state->num_active_subscriptions == 0) {
             state->finished = true;
@@ -737,7 +736,7 @@ class MergeMapGenerator {
 /// source.
 ///
 /// This generator expects source to be async-reentrant regardless of whether this
-/// generator is async-reentrant or not (unless max_subscriptions is 1)
+/// generator is pulled async-reentrantly or not (unless max_subscriptions is 1)
 /// This generator will not pull from the individual subscriptions reentrantly.  Add
 /// readahead to the individual subscriptions if that is desired.
 /// This generator is async-reentrant
@@ -859,7 +858,7 @@ class BackgroundGenerator {
         return IterationTraits<T>::End();
       }
       auto next = it_->Next();
-      if (!next.ok() || IterationTraits<T>::IsEnd(*next)) {
+      if (!next.ok() || IsIterationEnd<T>(*next)) {
         *done_ = true;
       }
       return next;

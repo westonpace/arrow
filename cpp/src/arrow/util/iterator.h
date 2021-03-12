@@ -44,6 +44,10 @@ struct IterationTraits {
   /// \brief a reserved value which indicates the end of iteration. By
   /// default this is NULLPTR since most iterators yield pointer types.
   /// Specialize IterationTraits if different end semantics are required.
+  ///
+  /// Note: This should not be used to determine if a given value is a
+  /// terminal value.  Use IsIterationEnd (which uses IsEnd) instead.  This
+  /// is only for returning terminal values.
   static T End() { return T(NULLPTR); }
 
   /// \brief Checks to see if the value is a terminal value.
@@ -51,6 +55,11 @@ struct IterationTraits {
   /// cases even though it has a distinct final value
   static bool IsEnd(const T& val) { return val == End(); }
 };
+
+template <typename T>
+bool IsIterationEnd(const T& val) {
+  return IterationTraits<T>::IsEnd(val);
+}
 
 template <typename T>
 struct IterationTraits<util::optional<T>> {
@@ -103,7 +112,7 @@ class Iterator : public util::EqualityComparable<Iterator<T>> {
     for (;;) {
       ARROW_ASSIGN_OR_RAISE(auto value, Next());
 
-      if (IterationTraits<T>::IsEnd(value)) break;
+      if (IsIterationEnd<T>(value)) break;
 
       ARROW_RETURN_NOT_OK(visitor(std::move(value)));
     }
@@ -274,7 +283,7 @@ class TransformIterator {
       }
       auto next = *next_res;
       if (next.ReadyForNext()) {
-        if (IterationTraits<T>::IsEnd(*last_value_)) {
+        if (IsIterationEnd<T>(*last_value_)) {
           finished_ = true;
         }
         last_value_.reset();
@@ -414,7 +423,7 @@ class MapIterator {
   Result<O> Next() {
     ARROW_ASSIGN_OR_RAISE(I i, it_.Next());
 
-    if (IterationTraits<I>::IsEnd(i)) {
+    if (IsIterationEnd<I>(i)) {
       return IterationTraits<O>::End();
     }
 
@@ -476,7 +485,7 @@ struct FilterIterator {
       for (;;) {
         ARROW_ASSIGN_OR_RAISE(From i, it_.Next());
 
-        if (IterationTraits<From>::IsEnd(i)) {
+        if (IsIterationEnd<From>(i)) {
           return IterationTraits<To>::End();
         }
 
@@ -512,12 +521,12 @@ class FlattenIterator {
   explicit FlattenIterator(Iterator<Iterator<T>> it) : parent_(std::move(it)) {}
 
   Result<T> Next() {
-    if (IterationTraits<Iterator<T>>::IsEnd(child_)) {
+    if (IsIterationEnd<Iterator<T>>(child_)) {
       // Pop from parent's iterator.
       ARROW_ASSIGN_OR_RAISE(child_, parent_.Next());
 
       // Check if final iteration reached.
-      if (IterationTraits<Iterator<T>>::IsEnd(child_)) {
+      if (IsIterationEnd<Iterator<T>>(child_)) {
         return IterationTraits<T>::End();
       }
 
@@ -526,7 +535,7 @@ class FlattenIterator {
 
     // Pop from child_ and check for depletion.
     ARROW_ASSIGN_OR_RAISE(T out, child_.Next());
-    if (IterationTraits<T>::IsEnd(out)) {
+    if (IsIterationEnd<T>(out)) {
       // Reset state such that we pop from parent on the recursive call
       child_ = IterationTraits<Iterator<T>>::End();
 
