@@ -55,7 +55,7 @@ struct TestStr {
   TestStr(const std::string& s) : value(s) {}  // NOLINT runtime/explicit
   TestStr(const char* s) : value(s) {}         // NOLINT runtime/explicit
   explicit TestStr(const TestInt& test_int) {
-    if (IterationTraits<TestInt>::IsEnd(test_int)) {
+    if (IsIterationEnd<TestInt>(test_int)) {
       value = "";
     } else {
       value = std::to_string(test_int.value);
@@ -274,13 +274,13 @@ void AssertIteratorNext(T expected, Iterator<T>& it) {
 template <typename T>
 void AssertIteratorExhausted(Iterator<T>& it) {
   ASSERT_OK_AND_ASSIGN(T next, it.Next());
-  ASSERT_TRUE(IterationTraits<T>::IsEnd(next));
+  ASSERT_TRUE(IsIterationEnd<T>(next));
 }
 
 template <typename T>
 void AssertGeneratorExhausted(AsyncGenerator<T>& gen) {
   ASSERT_FINISHES_OK_AND_ASSIGN(auto next, gen());
-  ASSERT_TRUE(IterationTraits<T>::IsEnd(next));
+  ASSERT_TRUE(IsIterationEnd<T>(next));
 }
 
 // --------------------------------------------------------------------
@@ -418,7 +418,7 @@ TEST(TestIteratorTransform, Abort) {
   ASSERT_OK(transformed.Next());
   ASSERT_RAISES(Invalid, transformed.Next());
   ASSERT_OK_AND_ASSIGN(auto third, transformed.Next());
-  ASSERT_TRUE(IterationTraits<TestStr>::IsEnd(third));
+  ASSERT_TRUE(IsIterationEnd<TestStr>(third));
 }
 
 template <typename T>
@@ -617,37 +617,43 @@ TEST(ReadaheadIterator, NextError) {
 // Asynchronous iterator tests
 
 template <typename T>
+class ReentrantCheckerGuard;
+
+template <typename T>
+ReentrantCheckerGuard<T> ExpectNotAccessedReentrantly(AsyncGenerator<T>* generator);
+
+template <typename T>
 class ReentrantChecker {
  public:
-  explicit ReentrantChecker(AsyncGenerator<T> source)
-      : state_(std::make_shared<State>(std::move(source))) {}
-
   Future<T> operator()() {
-    if (state_->in.load()) {
+    if (state_->generated_unfinished_future.load()) {
       state_->valid.store(false);
     }
-    state_->in.store(true);
+    state_->generated_unfinished_future.store(true);
     auto result = state_->source();
     return result.Then(Callback{state_});
   }
 
-  void AssertValid() {
-    EXPECT_EQ(true, state_->valid.load())
-        << "The generator was accessed in a reentrant manner";
-  }
+  bool valid() { return state_->valid.load(); }
 
  private:
+  explicit ReentrantChecker(AsyncGenerator<T> source)
+      : state_(std::make_shared<State>(std::move(source))) {}
+
+  friend ReentrantCheckerGuard<T> ExpectNotAccessedReentrantly<T>(
+      AsyncGenerator<T>* generator);
+
   struct State {
     explicit State(AsyncGenerator<T> source_)
-        : source(std::move(source_)), in(false), valid(true) {}
+        : source(std::move(source_)), generated_unfinished_future(false), valid(true) {}
 
     AsyncGenerator<T> source;
-    std::atomic<bool> in;
+    std::atomic<bool> generated_unfinished_future;
     std::atomic<bool> valid;
   };
   struct Callback {
     Future<T> operator()(const Result<T>& result) {
-      state_->in.store(false);
+      state_->generated_unfinished_future.store(false);
       return result;
     }
     std::shared_ptr<State> state_;
@@ -655,6 +661,50 @@ class ReentrantChecker {
 
   std::shared_ptr<State> state_;
 };
+
+template <typename T>
+class ReentrantCheckerGuard {
+ public:
+  explicit ReentrantCheckerGuard(ReentrantChecker<T> checker) : checker_(checker) {}
+
+  ARROW_DISALLOW_COPY_AND_ASSIGN(ReentrantCheckerGuard);
+  ReentrantCheckerGuard(ReentrantCheckerGuard&& other) : checker_(other.checker_) {
+    if (other.owner_) {
+      other.owner_ = false;
+      owner_ = true;
+    } else {
+      owner_ = false;
+    }
+  };
+  ReentrantCheckerGuard& operator=(ReentrantCheckerGuard&& other) {
+    checker_ = other.checker_;
+    if (other.owner_) {
+      other.owner_ = false;
+      owner_ = true;
+    } else {
+      owner_ = false;
+    }
+    return *this;
+  }
+
+  ~ReentrantCheckerGuard() {
+    if (owner_ && !checker_.valid()) {
+      ADD_FAILURE() << "A generator was accessed reentrantly when the test asserted it "
+                       "should not be.";
+    }
+  }
+
+ private:
+  ReentrantChecker<T> checker_;
+  bool owner_ = true;
+};
+
+template <typename T>
+ReentrantCheckerGuard<T> ExpectNotAccessedReentrantly(AsyncGenerator<T>* generator) {
+  auto reentrant_checker = ReentrantChecker<T>(*generator);
+  *generator = reentrant_checker;
+  return ReentrantCheckerGuard<T>(reentrant_checker);
+}
 
 TEST(TestAsyncUtil, Visit) {
   auto generator = AsyncVectorIt<TestInt>({1, 2, 3});
@@ -707,19 +757,11 @@ TEST(TestAsyncUtil, MapReentrant) {
                                     internal::GetCpuThreadPool());
 
   std::atomic<int> map_tasks_running(0);
-  // Mapper blocks until signal, should start multiple map tasks
-  std::atomic<bool> can_proceed(false);
-  std::function<Future<TestStr>(const TestInt&)> mapper =
-      [&can_proceed, &map_tasks_running](const TestInt& in) -> Future<TestStr> {
-    auto fut = Future<TestStr>::Make();
+  // Mapper blocks until can_proceed is marked finished, should start multiple map tasks
+  Future<> can_proceed = Future<>::Make();
+  std::function<Future<TestStr>(const TestInt&)> mapper = [&](const TestInt& in) {
     map_tasks_running.fetch_add(1);
-    std::thread([fut, in, &can_proceed]() mutable {
-      while (!can_proceed.load()) {
-        SleepABit();
-      }
-      fut.MarkFinished(TestStr(std::to_string(in.value)));
-    }).detach();
-    return fut;
+    return can_proceed.Then([in](...) { return TestStr(std::to_string(in.value)); });
   };
   auto mapped = MakeMappedGenerator(std::move(source), mapper);
 
@@ -740,7 +782,7 @@ TEST(TestAsyncUtil, MapReentrant) {
   auto end_one = mapped();
   auto end_two = mapped();
 
-  can_proceed.store(true);
+  can_proceed.MarkFinished();
   ASSERT_FINISHES_OK_AND_ASSIGN(auto oneval, one);
   EXPECT_EQ("1", oneval.value);
   ASSERT_FINISHES_OK_AND_ASSIGN(auto twoval, two);
@@ -757,7 +799,7 @@ TEST(TestAsyncUtil, MapParallelStress) {
   for (int i = 0; i < NTASKS; i++) {
     auto gen = MakeVectorGenerator(RangeVector(NITEMS));
     gen = SlowdownABit(std::move(gen));
-    gen = ReentrantChecker<TestInt>(std::move(gen));
+    auto guard = ExpectNotAccessedReentrantly(&gen);
     std::function<TestStr(const TestInt&)> mapper = [](const TestInt& in) {
       SleepABit();
       return std::to_string(in.value);
@@ -877,11 +919,14 @@ TEST_P(GeneratorTestFixture, MergeMapStress) {
   constexpr int NITEMS = 10;
   for (int i = 0; i < GetNumItersForStress(); i++) {
     std::vector<AsyncGenerator<TestInt>> sources;
+    std::vector<ReentrantCheckerGuard<TestInt>> guards;
     for (int j = 0; j < NGENERATORS; j++) {
-      sources.push_back(ReentrantChecker<TestInt>(MakeSource(RangeVector(NITEMS))));
+      auto source = MakeSource(RangeVector(NITEMS));
+      guards.push_back(ExpectNotAccessedReentrantly(&source));
+      sources.push_back(source);
     }
-    AsyncGenerator<AsyncGenerator<TestInt>> source_gen =
-        ReentrantChecker<AsyncGenerator<TestInt>>(AsyncVectorIt(sources));
+    AsyncGenerator<AsyncGenerator<TestInt>> source_gen = AsyncVectorIt(sources);
+
     auto merged = MakeMergeMapGenerator(source_gen, 4);
     ASSERT_FINISHES_OK_AND_ASSIGN(auto items, CollectAsyncGenerator(merged));
     ASSERT_EQ(NITEMS * NGENERATORS, items.size());
@@ -1031,10 +1076,10 @@ TEST(TestAsyncUtil, BackgroundRepeatEnd) {
   auto two = background_gen();
 
   ASSERT_FINISHES_OK_AND_ASSIGN(auto one_fin, one);
-  ASSERT_TRUE(IterationTraits<TestInt>::IsEnd(one_fin));
+  ASSERT_TRUE(IsIterationEnd<TestInt>(one_fin));
 
   ASSERT_FINISHES_OK_AND_ASSIGN(auto two_fin, two);
-  ASSERT_TRUE(IterationTraits<TestInt>::IsEnd(two_fin));
+  ASSERT_TRUE(IsIterationEnd<TestInt>(two_fin));
 }
 
 TEST(TestAsyncUtil, CompleteBackgroundStressTest) {
@@ -1053,12 +1098,11 @@ TEST(TestAsyncUtil, CompleteBackgroundStressTest) {
 }
 
 TEST(TestAsyncUtil, SerialReadaheadSlowProducer) {
-  AsyncGenerator<TestInt> it = BackgroundAsyncVectorIt({1, 2, 3, 4, 5});
-  ReentrantChecker<TestInt> checker(std::move(it));
-  SerialReadaheadGenerator<TestInt> serial_readahead(checker, 2);
+  AsyncGenerator<TestInt> gen = BackgroundAsyncVectorIt({1, 2, 3, 4, 5});
+  auto guard = ExpectNotAccessedReentrantly(&gen);
+  SerialReadaheadGenerator<TestInt> serial_readahead(gen, 2);
   AssertAsyncGeneratorMatch({1, 2, 3, 4, 5},
                             static_cast<AsyncGenerator<TestInt>>(serial_readahead));
-  checker.AssertValid();
 }
 
 TEST(TestAsyncUtil, SerialReadaheadSlowConsumer) {
@@ -1084,9 +1128,9 @@ TEST(TestAsyncUtil, SerialReadaheadStress) {
   constexpr int NTASKS = 20;
   constexpr int NITEMS = 50;
   for (int i = 0; i < NTASKS; i++) {
-    AsyncGenerator<TestInt> it = BackgroundAsyncVectorIt(RangeVector(NITEMS));
-    ReentrantChecker<TestInt> checker(std::move(it));
-    SerialReadaheadGenerator<TestInt> serial_readahead(checker, 2);
+    AsyncGenerator<TestInt> gen = BackgroundAsyncVectorIt(RangeVector(NITEMS));
+    auto guard = ExpectNotAccessedReentrantly(&gen);
+    SerialReadaheadGenerator<TestInt> serial_readahead(gen, 2);
     auto visit_fut =
         VisitAsyncGenerator<TestInt>(serial_readahead, [](TestInt test_int) -> Status {
           // Normally sleeping in a visit function would be a faux-pas but we want to slow
@@ -1095,7 +1139,6 @@ TEST(TestAsyncUtil, SerialReadaheadStress) {
           return Status::OK();
         });
     ASSERT_FINISHES_OK(visit_fut);
-    checker.AssertValid();
   }
 }
 
@@ -1103,13 +1146,12 @@ TEST(TestAsyncUtil, SerialReadaheadStressFast) {
   constexpr int NTASKS = 20;
   constexpr int NITEMS = 50;
   for (int i = 0; i < NTASKS; i++) {
-    AsyncGenerator<TestInt> it = BackgroundAsyncVectorIt(RangeVector(NITEMS), false);
-    ReentrantChecker<TestInt> checker(std::move(it));
-    SerialReadaheadGenerator<TestInt> serial_readahead(checker, 2);
+    AsyncGenerator<TestInt> gen = BackgroundAsyncVectorIt(RangeVector(NITEMS), false);
+    auto guard = ExpectNotAccessedReentrantly(&gen);
+    SerialReadaheadGenerator<TestInt> serial_readahead(gen, 2);
     auto visit_fut = VisitAsyncGenerator<TestInt>(
         serial_readahead, [](TestInt test_int) -> Status { return Status::OK(); });
     ASSERT_FINISHES_OK(visit_fut);
-    checker.AssertValid();
   }
 }
 
@@ -1173,7 +1215,7 @@ TEST(TestAsyncUtil, Readahead) {
   // Next should be end
   auto last = readahead();
   ASSERT_FINISHES_OK_AND_ASSIGN(auto last_val, last);
-  ASSERT_TRUE(IterationTraits<TestInt>::IsEnd(last_val));
+  ASSERT_TRUE(IsIterationEnd<TestInt>(last_val));
 }
 
 TEST(TestAsyncUtil, ReadaheadFailed) {
@@ -1203,7 +1245,7 @@ TEST(TestAsyncUtil, ReadaheadFailed) {
 
   // It's possible that finished was set quickly and there
   // are only 10 elements
-  if (IterationTraits<TestInt>::IsEnd(after)) {
+  if (IsIterationEnd<TestInt>(after)) {
     return;
   }
 
@@ -1212,7 +1254,7 @@ TEST(TestAsyncUtil, ReadaheadFailed) {
   ASSERT_EQ(TestInt(10), after);
   // There can't be 12 elements because SleepABit will prevent it
   ASSERT_FINISHES_OK_AND_ASSIGN(auto definitely_last, readahead());
-  ASSERT_TRUE(IterationTraits<TestInt>::IsEnd(definitely_last));
+  ASSERT_TRUE(IsIterationEnd<TestInt>(definitely_last));
 }
 
 TEST(TestAsyncIteratorTransform, SkipSome) {

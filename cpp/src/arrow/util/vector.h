@@ -87,7 +87,7 @@ std::vector<T> FilterVector(std::vector<T> values, Predicate&& predicate) {
 /// \brief Like MapVector, but where the function can fail.
 template <typename Fn, typename From = internal::call_traits::argument_type<0, Fn>,
           typename To = typename internal::call_traits::return_type<Fn>::ValueType>
-Result<std::vector<To>> MaybeMapVector(Fn map, const std::vector<From>& src) {
+Result<std::vector<To>> MaybeMapVector(Fn&& map, const std::vector<From>& src) {
   std::vector<To> out;
   out.reserve(src.size());
   ARROW_RETURN_NOT_OK(
@@ -97,7 +97,7 @@ Result<std::vector<To>> MaybeMapVector(Fn map, const std::vector<From>& src) {
 
 template <typename Fn, typename From = internal::call_traits::argument_type<0, Fn>,
           typename To = typename internal::call_traits::return_type<Fn>>
-std::vector<To> MapVector(Fn map, const std::vector<From>& source) {
+std::vector<To> MapVector(Fn&& map, const std::vector<From>& source) {
   std::vector<To> out;
   out.reserve(source.size());
   std::transform(source.begin(), source.end(), std::back_inserter(out), map);
@@ -105,7 +105,7 @@ std::vector<To> MapVector(Fn map, const std::vector<From>& source) {
 }
 
 template <typename T>
-std::vector<T> FlattenVectors(const std::vector<std::vector<T>> vecs) {
+std::vector<T> FlattenVectors(const std::vector<std::vector<T>>& vecs) {
   std::size_t sum = 0;
   for (const auto& vec : vecs) {
     sum += vec.size();
