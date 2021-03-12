@@ -425,8 +425,10 @@ class SerialReadaheadGenerator {
         : first_(true),
           source_(std::move(source)),
           finished_(false),
-          spaces_available_(max_readahead),
-          readahead_queue_(max_readahead) {}
+          // There is one extra "space" for the in-flight request
+          spaces_available_(max_readahead + 1),
+          // The SPSC queue has size-1 "usable" slots so we need to overallocate 1
+          readahead_queue_(max_readahead + 1) {}
 
     Status Pump(const std::shared_ptr<State>& self) {
       // Can't do readahead_queue.write(source().Then(Callback{self})) because then the
@@ -493,7 +495,7 @@ class SerialReadaheadGenerator {
 ///
 /// This generator is not async-reentrant (even if the source is)
 ///
-/// This generator may queue up to max_readahead instances of T
+/// This generator may queue up to max_readahead additional instances of T
 template <typename T>
 AsyncGenerator<T> MakeSerialReadaheadGenerator(AsyncGenerator<T> source_generator,
                                                int max_readahead) {

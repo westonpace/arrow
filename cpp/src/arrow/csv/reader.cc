@@ -858,7 +858,7 @@ class AsyncThreadedTableReader
 
     auto transferred_it = MakeTransferredGenerator(bg_it, cpu_executor_);
 
-    int32_t block_queue_size = std::max(2, cpu_executor_->GetCapacity());
+    int32_t block_queue_size = cpu_executor_->GetCapacity();
     auto rh_it =
         MakeSerialReadaheadGenerator(std::move(transferred_it), block_queue_size);
     buffer_generator_ = CSVBufferIterator::MakeAsync(std::move(rh_it));
