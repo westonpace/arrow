@@ -600,14 +600,21 @@ TEST(TestAsyncUtil, SerialReadaheadSlowConsumer) {
       return Future<TestInt>::MakeFinished(IterationTraits<TestInt>::End());
     }
   };
-  SerialReadaheadGenerator<TestInt> serial_readahead(std::move(source), 3);
+  AsyncGenerator<TestInt> serial_readahead = SerialReadaheadGenerator<TestInt>(source, 3);
   SleepABit();
   ASSERT_EQ(0, num_delivered);
   ASSERT_FINISHES_OK_AND_ASSIGN(auto next, serial_readahead());
   ASSERT_EQ(0, next.value);
-  ASSERT_EQ(3, num_delivered);
-  AssertAsyncGeneratorMatch({1, 2, 3, 4},
-                            static_cast<AsyncGenerator<TestInt>>(serial_readahead));
+  ASSERT_EQ(4, num_delivered);
+  AssertAsyncGeneratorMatch({1, 2, 3, 4}, serial_readahead);
+
+  // Ensure still reads ahead with just 1 slot
+  num_delivered = 0;
+  serial_readahead = SerialReadaheadGenerator<TestInt>(source, 1);
+  ASSERT_FINISHES_OK_AND_ASSIGN(next, serial_readahead());
+  ASSERT_EQ(0, next.value);
+  ASSERT_EQ(2, num_delivered);
+  AssertAsyncGeneratorMatch({1, 2, 3, 4}, serial_readahead);
 }
 
 TEST(TestAsyncUtil, SerialReadaheadStress) {
