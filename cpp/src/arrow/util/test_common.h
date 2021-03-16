@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <ostream>
+#include <iosfwd>
 
 #include "arrow/testing/gtest_util.h"
 #include "arrow/util/iterator.h"

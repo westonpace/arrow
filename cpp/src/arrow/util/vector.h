@@ -90,8 +90,8 @@ template <typename Fn, typename From = internal::call_traits::argument_type<0, F
 Result<std::vector<To>> MaybeMapVector(Fn&& map, const std::vector<From>& src) {
   std::vector<To> out;
   out.reserve(src.size());
-  ARROW_RETURN_NOT_OK(
-      MaybeTransform(src.begin(), src.end(), std::back_inserter(out), map));
+  ARROW_RETURN_NOT_OK(MaybeTransform(src.begin(), src.end(), std::back_inserter(out),
+                                     std::forward<Fn>(map)));
   return out;
 }
 
@@ -100,7 +100,8 @@ template <typename Fn, typename From = internal::call_traits::argument_type<0, F
 std::vector<To> MapVector(Fn&& map, const std::vector<From>& source) {
   std::vector<To> out;
   out.reserve(source.size());
-  std::transform(source.begin(), source.end(), std::back_inserter(out), map);
+  std::transform(source.begin(), source.end(), std::back_inserter(out),
+                 std::forward<Fn>(map));
   return out;
 }
 
@@ -119,7 +120,7 @@ std::vector<T> FlattenVectors(const std::vector<std::vector<T>>& vecs) {
 }
 
 template <typename T>
-Result<std::vector<T>> UnwrapOrRaise(std::vector<Result<T>> results) {
+Result<std::vector<T>> UnwrapOrRaise(std::vector<Result<T>>&& results) {
   std::vector<T> out;
   out.reserve(results.size());
   auto end = std::make_move_iterator(results.end());

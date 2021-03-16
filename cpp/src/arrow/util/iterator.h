@@ -68,7 +68,7 @@ struct IterationTraits<util::optional<T>> {
   /// Specialize IterationTraits if different end semantics are required.
   static util::optional<T> End() { return util::nullopt; }
 
-  /// \brief by default when iterating through a sequenc of optional,
+  /// \brief by default when iterating through a sequence of optional,
   /// nullopt (!has_value()) indicates the end of iteration.
   /// Specialize IterationTraits if different end semantics are required.
   static bool IsEnd(const util::optional<T>& val) { return !val.has_value(); }
