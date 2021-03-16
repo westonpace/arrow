@@ -53,6 +53,8 @@ namespace arrow {
 // Readahead operators, and some other operators, may introduce queueing.  Any operators
 // that introduce buffering should detail the amount of buffering they introduce in their
 // MakeXYZ function comments.
+template <typename T>
+using AsyncGenerator = std::function<Future<T>()>;
 
 template <typename T>
 struct IterationTraits<AsyncGenerator<T>> {

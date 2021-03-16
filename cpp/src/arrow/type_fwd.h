@@ -87,7 +87,6 @@ struct Datum;
 using ChunkedArrayVector = std::vector<std::shared_ptr<ChunkedArray>>;
 using RecordBatchVector = std::vector<std::shared_ptr<RecordBatch>>;
 using RecordBatchIterator = Iterator<std::shared_ptr<RecordBatch>>;
-using RecordBatchGenerator = AsyncGenerator<std::shared_ptr<RecordBatch>>;
 
 class DictionaryType;
 class DictionaryArray;
