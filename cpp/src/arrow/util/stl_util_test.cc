@@ -132,24 +132,14 @@ TEST(StlUtilTest, VectorMaybeMap) {
 }
 
 TEST(StlUtilTest, VectorUnwrapOrRaise) {
-  // FIXME There should be an easier way to construct these vectors
-  std::vector<Result<MoveOnlyDataType>> all_good;
-  all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(1)));
-  all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(2)));
-  all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(3)));
+  auto all_good = EmplacedMappedVector<Result<MoveOnlyDataType>>(
+      Constructor<MoveOnlyDataType>(), 1, 2, 3);
 
-  std::vector<Result<MoveOnlyDataType>> some_bad;
-  some_bad.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(1)));
-  some_bad.push_back(Result<MoveOnlyDataType>(Status::Invalid("XYZ")));
-  some_bad.push_back(Result<MoveOnlyDataType>(Status::IOError("XYZ")));
+  auto some_bad = EmplacedVector<Result<MoveOnlyDataType>>(
+      MoveOnlyDataType(1), Status::Invalid("XYZ"), Status::IOError("XYZ"));
 
-  EXPECT_OK_AND_ASSIGN(auto unwrapped, UnwrapOrRaise(std::move(all_good)));
-  std::vector<MoveOnlyDataType> expected;
-  expected.emplace_back(1);
-  expected.emplace_back(2);
-  expected.emplace_back(3);
-
-  ASSERT_EQ(expected, unwrapped);
+  auto expected = EmplacedVector<MoveOnlyDataType>(1, 2, 3);
+  ASSERT_OK_AND_EQ(expected, UnwrapOrRaise(std::move(all_good)));
 
   ASSERT_RAISES(Invalid, UnwrapOrRaise(std::move(some_bad)));
 }
