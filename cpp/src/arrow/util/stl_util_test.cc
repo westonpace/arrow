@@ -132,7 +132,7 @@ TEST(StlUtilTest, VectorMaybeMap) {
 }
 
 TEST(StlUtilTest, VectorUnwrapOrRaise) {
-  // FIXME There should be an easier way to construct these vectors
+  // TODO(ARROW-11998) There should be an easier way to construct these vectors
   std::vector<Result<MoveOnlyDataType>> all_good;
   all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(1)));
   all_good.push_back(Result<MoveOnlyDataType>(MoveOnlyDataType(2)));
