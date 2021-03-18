@@ -34,6 +34,18 @@ AsyncGenerator<T> AsyncVectorIt(std::vector<T> v) {
 }
 
 template <typename T>
+AsyncGenerator<T> FailsAt(AsyncGenerator<T> src, int failing_index) {
+  auto index = std::make_shared<std::atomic<int>>(0);
+  return [src, index, failing_index]() {
+    auto idx = index->fetch_add(1);
+    if (idx >= failing_index) {
+      return Future<T>::MakeFinished(Status::Invalid("XYZ"));
+    }
+    return src();
+  };
+}
+
+template <typename T>
 AsyncGenerator<T> Slowdown(AsyncGenerator<T> source, double seconds) {
   return MakeMappedGenerator<T, T>(
       std::move(source), [seconds](const T& res) -> Future<T> {
@@ -298,7 +310,7 @@ TEST(TestAsyncUtil, MapParallelStress) {
   }
 }
 
-TEST(TestAsyncUtil, MaybeMapFail) {
+TEST(TestAsyncUtil, MapTaskFail) {
   std::vector<TestInt> input = {1, 2, 3};
   auto generator = AsyncVectorIt(input);
   std::function<Result<TestStr>(const TestInt&)> mapper =
@@ -306,6 +318,17 @@ TEST(TestAsyncUtil, MaybeMapFail) {
     if (in.value == 2) {
       return Status::Invalid("XYZ");
     }
+    return TestStr(std::to_string(in.value));
+  };
+  auto mapped = MakeMappedGenerator(std::move(generator), mapper);
+  ASSERT_FINISHES_ERR(Invalid, CollectAsyncGenerator(mapped));
+}
+
+TEST(TestAsyncUtil, MapSourceFail) {
+  std::vector<TestInt> input = {1, 2, 3};
+  auto generator = FailsAt(AsyncVectorIt(input), 1);
+  std::function<Result<TestStr>(const TestInt&)> mapper =
+      [](const TestInt& in) -> Result<TestStr> {
     return TestStr(std::to_string(in.value));
   };
   auto mapped = MakeMappedGenerator(std::move(generator), mapper);
@@ -327,6 +350,17 @@ class GeneratorTestFixture : public ::testing::TestWithParam<bool> {
   AsyncGenerator<TestInt> MakeSource(const std::vector<TestInt>& items) {
     std::vector<TestInt> wrapped(items.begin(), items.end());
     auto gen = AsyncVectorIt(std::move(wrapped));
+    bool slow = GetParam();
+    if (slow) {
+      return SlowdownABit(std::move(gen));
+    }
+    return gen;
+  }
+
+  AsyncGenerator<TestInt> MakeFailingSource() {
+    AsyncGenerator<TestInt> gen = [] {
+      return Future<TestInt>::MakeFinished(Status::Invalid("XYZ"));
+    };
     bool slow = GetParam();
     if (slow) {
       return SlowdownABit(std::move(gen));
@@ -357,6 +391,22 @@ TEST_P(GeneratorTestFixture, Merged) {
 
   std::set<int> expected{1, 2, 4, 3, 5, 6};
   ASSERT_EQ(expected, concat_set);
+}
+
+TEST_P(GeneratorTestFixture, MergedInnerFail) {
+  auto gen = AsyncVectorIt<AsyncGenerator<TestInt>>(
+      {MakeSource({1, 2, 3}), MakeFailingSource()});
+  auto merged_gen = MakeMergedGenerator(gen, 10);
+  ASSERT_FINISHES_ERR(Invalid, CollectAsyncGenerator(merged_gen));
+}
+
+TEST_P(GeneratorTestFixture, MergedOuterFail) {
+  auto gen =
+      FailsAt(AsyncVectorIt<AsyncGenerator<TestInt>>(
+                  {MakeSource({1, 2, 3}), MakeSource({1, 2, 3}), MakeSource({1, 2, 3})}),
+              1);
+  auto merged_gen = MakeMergedGenerator(gen, 10);
+  ASSERT_FINISHES_ERR(Invalid, CollectAsyncGenerator(merged_gen));
 }
 
 TEST_P(GeneratorTestFixture, MergedLimitedSubscriptions) {

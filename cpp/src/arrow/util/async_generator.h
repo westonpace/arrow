@@ -616,7 +616,12 @@ class MergedGenerator {
       }
     }
     if (delivered_job) {
-      delivered_job->deliverer().AddCallback(InnerCallback{state_, delivered_job->index});
+      // deliverer will be invalid if outer callback encounters an error and delivers a
+      // failed result
+      if (delivered_job->deliverer) {
+        delivered_job->deliverer().AddCallback(
+            InnerCallback{state_, delivered_job->index});
+      }
       return std::move(delivered_job->value);
     }
     if (state_->first) {
@@ -630,11 +635,12 @@ class MergedGenerator {
 
  private:
   struct DeliveredJob {
-    explicit DeliveredJob(AsyncGenerator<T> deliverer_, T value_, std::size_t index_)
-        : deliverer(deliverer_), value(value_), index(index_) {}
+    explicit DeliveredJob(AsyncGenerator<T> deliverer_, Result<T> value_,
+                          std::size_t index_)
+        : deliverer(deliverer_), value(std::move(value_)), index(index_) {}
 
     AsyncGenerator<T> deliverer;
-    T value;
+    Result<T> value;
     std::size_t index;
   };
 
@@ -666,30 +672,31 @@ class MergedGenerator {
 
   struct InnerCallback {
     void operator()(const Result<T>& maybe_next) {
-      bool finished = false;
       Future<T> sink;
-      if (maybe_next.ok()) {
-        finished = IsIterationEnd(*maybe_next);
-        {
-          auto guard = state->mutex.Lock();
-          if (!finished) {
-            if (state->waiting_jobs.empty()) {
-              state->delivered_jobs.push_back(std::make_shared<DeliveredJob>(
-                  state->active_subscriptions[index], *maybe_next, index));
-            } else {
-              sink = std::move(*state->waiting_jobs.front());
-              state->waiting_jobs.pop_front();
-            }
+      bool sub_finished = maybe_next.ok() && IsIterationEnd(*maybe_next);
+      {
+        auto guard = state->mutex.Lock();
+        if (state->finished) {
+          // We've errored out so just ignore this result and don't keep pumping
+          return;
+        }
+        if (!sub_finished) {
+          if (state->waiting_jobs.empty()) {
+            state->delivered_jobs.push_back(std::make_shared<DeliveredJob>(
+                state->active_subscriptions[index], maybe_next, index));
+          } else {
+            sink = std::move(*state->waiting_jobs.front());
+            state->waiting_jobs.pop_front();
           }
         }
-      } else {
-        finished = true;
       }
-      if (finished) {
+      if (sub_finished) {
         state->source().AddCallback(OuterCallback{state, index});
       } else if (sink.is_valid()) {
-        sink.MarkFinished(*maybe_next);
-        state->active_subscriptions[index]().AddCallback(*this);
+        sink.MarkFinished(maybe_next);
+        if (maybe_next.ok()) {
+          state->active_subscriptions[index]().AddCallback(*this);
+        }
       }
     }
     std::shared_ptr<State> state;
@@ -700,18 +707,31 @@ class MergedGenerator {
     void operator()(const Result<AsyncGenerator<T>>& maybe_next) {
       bool should_purge = false;
       bool should_continue = false;
+      Future<T> error_sink;
       {
         auto guard = state->mutex.Lock();
         if (!maybe_next.ok() || IsIterationEnd(*maybe_next)) {
           state->source_exhausted = true;
-          if (--state->num_active_subscriptions == 0) {
+          if (!maybe_next.ok() || --state->num_active_subscriptions == 0) {
             state->finished = true;
             should_purge = true;
+          }
+          if (!maybe_next.ok()) {
+            if (state->waiting_jobs.empty()) {
+              state->delivered_jobs.push_back(std::make_shared<DeliveredJob>(
+                  AsyncGenerator<T>(), maybe_next.status(), index));
+            } else {
+              error_sink = std::move(*state->waiting_jobs.front());
+              state->waiting_jobs.pop_front();
+            }
           }
         } else {
           state->active_subscriptions[index] = *maybe_next;
           should_continue = true;
         }
+      }
+      if (error_sink.is_valid()) {
+        error_sink.MarkFinished(maybe_next.status());
       }
       if (should_continue) {
         (*maybe_next)().AddCallback(InnerCallback{state, index});
