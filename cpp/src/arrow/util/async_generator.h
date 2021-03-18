@@ -109,7 +109,7 @@ Future<> VisitAsyncGenerator(AsyncGenerator<T> generator,
 /// \brief Waits for an async generator to complete, discarding results.
 template <typename T>
 Future<> DiscardAllFromAsyncGenerator(AsyncGenerator<T> generator) {
-  std::function<Status(T)> visitor = [](...) { return Status::OK(); };
+  std::function<Status(T)> visitor = [](const T& val) { return Status::OK(); };
   return VisitAsyncGenerator(generator, visitor);
 }
 
