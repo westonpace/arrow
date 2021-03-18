@@ -183,6 +183,13 @@ struct TaggedRecordBatch {
   std::shared_ptr<RecordBatch> record_batch;
 };
 
+Result<std::shared_ptr<Table>> Scanner::ToTable() {
+  auto table_fut = ToTableAsync();
+  table_fut.Wait();
+  ARROW_ASSIGN_OR_RAISE(auto table, table_fut.result());
+  return table;
+}
+
 Future<std::shared_ptr<Table>> Scanner::ToTableAsync() {
   auto scan_options = scan_options_;
   return ScanAsync().Then([scan_options](const ScanTaskGenerator& scan_task_gen)

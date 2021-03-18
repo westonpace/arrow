@@ -171,12 +171,7 @@ class ARROW_DS_EXPORT Scanner {
   ///
   /// Use this convenience utility with care. This will serially materialize the
   /// Scan result in memory before creating the Table.
-  Result<std::shared_ptr<Table>> ToTable() {
-    auto table_fut = ToTableAsync();
-    table_fut.Wait();
-    ARROW_ASSIGN_OR_RAISE(auto table, table_fut.result());
-    return table;
-  }
+  Result<std::shared_ptr<Table>> ToTable();
 
   /// \brief Convert a Scanner into a Table.
   ///
