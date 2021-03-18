@@ -364,6 +364,11 @@ class TestScannerBuilder : public ::testing::Test {
   std::shared_ptr<Dataset> dataset_;
 };
 
+TEST_F(TestScannerBuilder, DefaultOptions) {
+  ScannerBuilder builder(dataset_);
+  ASSERT_OK(builder.Finish());
+}
+
 TEST_F(TestScannerBuilder, TestProject) {
   ScannerBuilder builder(dataset_, options_);
 

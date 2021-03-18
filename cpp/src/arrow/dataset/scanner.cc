@@ -83,6 +83,9 @@ Future<ScanTaskGenerator> Scanner::ScanAsync() {
   });
 }
 
+ScannerBuilder::ScannerBuilder(std::shared_ptr<Dataset> dataset)
+    : ScannerBuilder(std::move(dataset), std::make_shared<ScanOptions>()) {}
+
 ScannerBuilder::ScannerBuilder(std::shared_ptr<Dataset> dataset,
                                std::shared_ptr<ScanOptions> scan_options)
     : dataset_(std::move(dataset)),
