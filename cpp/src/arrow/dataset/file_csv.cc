@@ -130,16 +130,12 @@ static inline Future<std::shared_ptr<csv::StreamingReader>> OpenReaderAsync(
 
   return csv::StreamingReader::MakeAsync(io::default_io_context(), std::move(input),
                                          reader_options, parse_options, convert_options)
-      .Then([source](const Result<std::shared_ptr<csv::StreamingReader>>& maybe_reader)
-                -> Result<std::shared_ptr<csv::StreamingReader>> {
-        if (!maybe_reader.ok()) {
-          return maybe_reader.status().WithMessage("Could not open CSV input source '",
-                                                   source.path(),
-                                                   "': ", maybe_reader.status());
-        }
-
-        return maybe_reader;
-      });
+      .Then([](const std::shared_ptr<csv::StreamingReader>& maybe_reader)
+                -> Result<std::shared_ptr<csv::StreamingReader>> { return maybe_reader; },
+            [source](const Status& err) -> Result<std::shared_ptr<csv::StreamingReader>> {
+              return err.WithMessage("Could not open CSV input source '", source.path(),
+                                     "': ", err);
+            });
 }
 
 static inline Result<std::shared_ptr<csv::StreamingReader>> OpenReader(

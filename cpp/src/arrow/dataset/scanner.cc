@@ -166,7 +166,6 @@ struct TableAssemblyState {
   std::mutex mutex{};
   std::vector<RecordBatchVector> batches{};
   int scan_task_id = 0;
-  std::shared_ptr<TaskGroup> task_group;
 
   void Emplace(RecordBatchVector b, size_t position) {
     std::lock_guard<std::mutex> lock(mutex);
