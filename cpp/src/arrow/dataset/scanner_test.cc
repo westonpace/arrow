@@ -120,6 +120,8 @@ class SimpleFragment : public Fragment {
         [](const std::shared_ptr<GatingScanTask>& task) -> std::shared_ptr<ScanTask> {
           return task;
         });
+    // Must clear scan tasks to avoid a circular ref scan_task->fragment->scan_task
+    scan_tasks_.clear();
     return Future<ScanTaskVector>::MakeFinished(scan_tasks);
   }
 
