@@ -227,9 +227,13 @@ jobs:
         shell: cmd
         run: cat check/arrow.Rcheck/00install.out
         if: always()
-      - name: List output dir
+      - name: Dump i386 tests
         shell: cmd
-        run: ls check/arrow.Rcheck/*
+        run: cat check/arrow.Rcheck/tests_i386/testthat.Rout*
+        if: always()
+      - name: Dump x64 tests
+        shell: cmd
+        run: cat check/arrow.Rcheck/tests_x64/testthat.Rout*
         if: always()
       # We can remove this when we drop support for Rtools 3.5.
       - name: Ensure using system tar in actions/cache
