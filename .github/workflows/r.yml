@@ -229,7 +229,15 @@ jobs:
         if: always()
       - name: Dump i386 tests
         shell: cmd
-        run: cat check/arrow.Rcheck/tests_i386/testthat.Rout*
+        run: cat check/arrow.Rcheck/tests_i386/testthat.Rout.fail
+        if: always()
+      - name: Dump other i386 stuff
+        shell: cmd
+        run: cat check/arrow.Rcheck/arrow-Ex_i386.Rout
+        if: always()
+      - name: Dump even more stuff
+        shell: cmd
+        run: cat check/arrow.Rcheck/00check.log
         if: always()
       - name: Dump x64 tests
         shell: cmd
