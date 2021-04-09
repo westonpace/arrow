@@ -1080,36 +1080,46 @@ struct IterationTraits<Enumerated<T>> {
 template <typename T>
 class EnumeratingGenerator {
  public:
-  EnumeratingGenerator(AsyncGenerator<T> source, T initial_value)
-      : state_(std::make_shared<State>(std::move(source), std::move(initial_value))) {}
+  EnumeratingGenerator(AsyncGenerator<T> source)
+      : state_(std::make_shared<State>(std::move(source), IterationEnd<T>())) {}
 
   Future<Enumerated<T>> operator()() {
     if (state_->finished) {
       return AsyncGeneratorEnd<Enumerated<T>>();
     } else {
-      auto state = state_;
-      return state->source().Then([state](const T& next) {
-        auto finished = IsIterationEnd<T>(next);
-        auto prev = Enumerated<T>{state->prev_value, state->prev_index, finished};
-        state->prev_value = next;
-        state->prev_index++;
-        state->finished = finished;
-        return prev;
-      });
+      return state_->source().Then(Callback{state_});
     }
   }
 
  private:
   struct State {
     State(AsyncGenerator<T> source, T initial_value)
-        : source(std::move(source)), prev_value(std::move(initial_value)), prev_index(0) {
-      finished = IsIterationEnd<T>(prev_value);
-    }
+        : source(std::move(source)),
+          prev_value(std::move(initial_value)),
+          prev_index(-1),
+          finished(false) {}
 
     AsyncGenerator<T> source;
     T prev_value;
     int prev_index;
     bool finished;
+  };
+
+  struct Callback {
+    Future<Enumerated<T>> operator()(const T& next) {
+      auto finished = IsIterationEnd<T>(next);
+      auto prev = Enumerated<T>{state->prev_value, state->prev_index, finished};
+      state->prev_value = next;
+      state->prev_index++;
+      state->finished = finished;
+      if (!finished && prev.index < 0) {
+        // Unless the first item is a terminal item we cannot return and we need to wait
+        // for one more item
+        return state->source().Then(Callback{state});
+      }
+      return Future<Enumerated<T>>::MakeFinished(prev);
+    }
+    std::shared_ptr<State> state;
   };
 
   std::shared_ptr<State> state_;
@@ -1137,10 +1147,7 @@ class EnumeratingGenerator {
 /// This generator buffers one item (so it knows which item is the last item)
 template <typename T>
 AsyncGenerator<Enumerated<T>> MakeEnumeratedGenerator(AsyncGenerator<T> source) {
-  return FutureFirstGenerator<Enumerated<T>>(
-      source().Then([source](const T& initial_value) -> AsyncGenerator<Enumerated<T>> {
-        return EnumeratingGenerator<T>(std::move(source), initial_value);
-      }));
+  return EnumeratingGenerator<T>(std::move(source));
 }
 
 /// \see MakeTransferredGenerator
