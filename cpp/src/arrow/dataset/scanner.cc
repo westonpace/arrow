@@ -645,10 +645,9 @@ Future<std::shared_ptr<Table>> AsyncScanner::ToTableAsync(
   auto table_building_gen = MakeMappedGenerator<EnumeratedRecordBatch>(
       positioned_batch_gen, table_building_task);
 
-  return DiscardAllFromAsyncGenerator(table_building_gen)
-      .Then([state, scan_options](const detail::Empty&) {
-        return Table::FromRecordBatches(scan_options->projected_schema, state->Finish());
-      });
+  return DiscardAllFromAsyncGenerator(table_building_gen).Then([state, scan_options]() {
+    return Table::FromRecordBatches(scan_options->projected_schema, state->Finish());
+  });
 }
 
 ScannerBuilder::ScannerBuilder(std::shared_ptr<Dataset> dataset)
