@@ -18,6 +18,7 @@
 #include <iosfwd>
 
 #include "arrow/testing/gtest_util.h"
+#include "arrow/util/executor.h"
 #include "arrow/util/iterator.h"
 
 namespace arrow {
@@ -84,5 +85,20 @@ inline void AssertIteratorExhausted(Iterator<T>& it) {
 }
 
 Transformer<TestInt, TestStr> MakeFilter(std::function<bool(TestInt&)> filter);
+
+class MockExecutor : public internal::Executor {
+ public:
+  int GetCapacity() { return 0; }
+  bool HasIdleCapacity() { return has_idle_capacity; }
+  Status SpawnReal(internal::TaskHints hints, internal::FnOnce<void()> task, StopToken,
+                   StopCallback&&) {
+    spawn_count++;
+    std::move(task)();
+    return Status::OK();
+  }
+
+  bool has_idle_capacity = false;
+  int spawn_count = 0;
+};
 
 }  // namespace arrow

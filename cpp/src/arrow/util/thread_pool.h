@@ -30,6 +30,7 @@
 #include "arrow/result.h"
 #include "arrow/status.h"
 #include "arrow/util/cancel.h"
+#include "arrow/util/executor.h"
 #include "arrow/util/functional.h"
 #include "arrow/util/future.h"
 #include "arrow/util/macros.h"
@@ -61,134 +62,6 @@ ARROW_EXPORT Status SetCpuThreadPoolCapacity(int threads);
 
 namespace internal {
 
-// Hints about a task that may be used by an Executor.
-// They are ignored by the provided ThreadPool implementation.
-struct TaskHints {
-  // The lower, the more urgent
-  int32_t priority = 0;
-  // The IO transfer size in bytes
-  int64_t io_size = -1;
-  // The approximate CPU cost in number of instructions
-  int64_t cpu_cost = -1;
-  // An application-specific ID
-  int64_t external_id = -1;
-};
-
-class ARROW_EXPORT Executor {
- public:
-  using StopCallback = internal::FnOnce<void(const Status&)>;
-
-  virtual ~Executor();
-
-  // Spawn a fire-and-forget task.
-  template <typename Function>
-  Status Spawn(Function&& func, StopToken stop_token = StopToken::Unstoppable()) {
-    return SpawnReal(TaskHints{}, std::forward<Function>(func), std::move(stop_token),
-                     StopCallback{});
-  }
-
-  template <typename Function>
-  Status Spawn(TaskHints hints, Function&& func,
-               StopToken stop_token = StopToken::Unstoppable()) {
-    return SpawnReal(hints, std::forward<Function>(func), std::move(stop_token),
-                     StopCallback{});
-  }
-
-  // Transfers a future to this executor.  Any continuations added to the
-  // returned future will run in this executor.  Otherwise they would run
-  // on the same thread that called MarkFinished.
-  //
-  // This is necessary when (for example) an I/O task is completing a future.
-  // The continuations of that future should run on the CPU thread pool keeping
-  // CPU heavy work off the I/O thread pool.  So the I/O task should transfer
-  // the future to the CPU executor before returning.
-  template <typename T, typename FT = Future<T>, typename FTSync = typename FT::SyncType>
-  Future<T> Transfer(Future<T> future) {
-    auto transferred = Future<T>::Make();
-    auto callback = [this, transferred](const FTSync& result) mutable {
-      auto spawn_status =
-          Spawn([transferred, result]() mutable { transferred.MarkFinished(result); });
-      if (!spawn_status.ok()) {
-        transferred.MarkFinished(spawn_status);
-      }
-    };
-    auto callback_factory = [&callback]() { return callback; };
-    if (future.TryAddCallback(callback_factory)) {
-      return transferred;
-    }
-    // If the future is already finished and we aren't going to force spawn a thread
-    // then we don't need to add another layer of callback and can return the original
-    // future
-    return future;
-  }
-
-  // Submit a callable and arguments for execution.  Return a future that
-  // will return the callable's result value once.
-  // The callable's arguments are copied before execution.
-  template <typename Function, typename... Args,
-            typename FutureType = typename ::arrow::detail::ContinueFuture::ForSignature<
-                Function && (Args && ...)>>
-  Result<FutureType> Submit(TaskHints hints, StopToken stop_token, Function&& func,
-                            Args&&... args) {
-    using ValueType = typename FutureType::ValueType;
-
-    auto future = FutureType::Make();
-    auto task = std::bind(::arrow::detail::ContinueFuture{}, future,
-                          std::forward<Function>(func), std::forward<Args>(args)...);
-    struct {
-      WeakFuture<ValueType> weak_fut;
-
-      void operator()(const Status& st) {
-        auto fut = weak_fut.get();
-        if (fut.is_valid()) {
-          fut.MarkFinished(st);
-        }
-      }
-    } stop_callback{WeakFuture<ValueType>(future)};
-    ARROW_RETURN_NOT_OK(SpawnReal(hints, std::move(task), std::move(stop_token),
-                                  std::move(stop_callback)));
-
-    return future;
-  }
-
-  template <typename Function, typename... Args,
-            typename FutureType = typename ::arrow::detail::ContinueFuture::ForSignature<
-                Function && (Args && ...)>>
-  Result<FutureType> Submit(StopToken stop_token, Function&& func, Args&&... args) {
-    return Submit(TaskHints{}, stop_token, std::forward<Function>(func),
-                  std::forward<Args>(args)...);
-  }
-
-  template <typename Function, typename... Args,
-            typename FutureType = typename ::arrow::detail::ContinueFuture::ForSignature<
-                Function && (Args && ...)>>
-  Result<FutureType> Submit(TaskHints hints, Function&& func, Args&&... args) {
-    return Submit(std::move(hints), StopToken::Unstoppable(),
-                  std::forward<Function>(func), std::forward<Args>(args)...);
-  }
-
-  template <typename Function, typename... Args,
-            typename FutureType = typename ::arrow::detail::ContinueFuture::ForSignature<
-                Function && (Args && ...)>>
-  Result<FutureType> Submit(Function&& func, Args&&... args) {
-    return Submit(TaskHints{}, StopToken::Unstoppable(), std::forward<Function>(func),
-                  std::forward<Args>(args)...);
-  }
-
-  // Return the level of parallelism (the number of tasks that may be executed
-  // concurrently).  This may be an approximate number.
-  virtual int GetCapacity() = 0;
-
- protected:
-  ARROW_DISALLOW_COPY_AND_ASSIGN(Executor);
-
-  Executor() = default;
-
-  // Subclassing API
-  virtual Status SpawnReal(TaskHints hints, FnOnce<void()> task, StopToken,
-                           StopCallback&&) = 0;
-};
-
 /// \brief An executor implementation that runs all tasks on a single thread using an
 /// event loop.
 ///
@@ -203,6 +76,7 @@ class ARROW_EXPORT SerialExecutor : public Executor {
   ~SerialExecutor();
 
   int GetCapacity() override { return 1; };
+  bool HasIdleCapacity() override { return false; }
   Status SpawnReal(TaskHints hints, FnOnce<void()> task, StopToken,
                    StopCallback&&) override;
 
@@ -263,6 +137,10 @@ class ARROW_EXPORT ThreadPool : public Executor {
   // The actual number of workers may lag a bit before being adjusted to
   // match this value.
   int GetCapacity() override;
+
+  // Return true if there are no tasks in the queue and at least one thread
+  // is idle.
+  bool HasIdleCapacity() override;
 
   // Return the number of tasks either running or in the queue.
   int GetNumTasks();

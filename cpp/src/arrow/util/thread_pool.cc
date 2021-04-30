@@ -281,6 +281,12 @@ int ThreadPool::GetCapacity() {
   return state_->desired_capacity_;
 }
 
+bool ThreadPool::HasIdleCapacity() {
+  ProtectAgainstFork();
+  std::unique_lock<std::mutex> lock(state_->mutex_);
+  return state_->tasks_queued_or_running_ < state_->desired_capacity_;
+}
+
 int ThreadPool::GetNumTasks() {
   ProtectAgainstFork();
   std::unique_lock<std::mutex> lock(state_->mutex_);
