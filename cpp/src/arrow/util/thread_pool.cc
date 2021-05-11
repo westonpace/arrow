@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <condition_variable>
 #include <deque>
+#include <iostream>
 #include <list>
 #include <mutex>
 #include <string>
@@ -132,6 +133,7 @@ struct ThreadPool::State {
 
   // Total number of tasks that are either queued or running
   int tasks_queued_or_running_ = 0;
+  int total_tasks_queued_or_running_ = 0;
 
   // Are we shutting down?
   bool please_shutdown_ = false;
@@ -293,6 +295,12 @@ int ThreadPool::GetNumTasks() {
   return state_->tasks_queued_or_running_;
 }
 
+int ThreadPool::GetNumTasksScheduled() {
+  ProtectAgainstFork();
+  std::unique_lock<std::mutex> lock(state_->mutex_);
+  return state_->total_tasks_queued_or_running_;
+}
+
 int ThreadPool::GetActualCapacity() {
   ProtectAgainstFork();
   std::unique_lock<std::mutex> lock(state_->mutex_);
@@ -347,6 +355,7 @@ Status ThreadPool::SpawnReal(TaskHints hints, FnOnce<void()> task, StopToken sto
     }
     CollectFinishedWorkersUnlocked();
     state_->tasks_queued_or_running_++;
+    state_->total_tasks_queued_or_running_++;
     if (static_cast<int>(state_->workers_.size()) < state_->tasks_queued_or_running_ &&
         state_->desired_capacity_ > static_cast<int>(state_->workers_.size())) {
       // We can still spin up more workers so spin up a new worker

@@ -199,6 +199,9 @@ Result<int64_t> FileRead(int fd, uint8_t* buffer, int64_t nbytes);
 /// Read from given file position.  Return number of bytes read.
 ARROW_EXPORT
 Result<int64_t> FileReadAt(int fd, uint8_t* buffer, int64_t position, int64_t nbytes);
+ARROW_EXPORT
+/// Flushes all changes to a file to disk.
+Status FileSync(int fd);
 
 ARROW_EXPORT
 Status FileWrite(int fd, const uint8_t* buffer, const int64_t nbytes);

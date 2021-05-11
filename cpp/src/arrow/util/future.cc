@@ -269,7 +269,7 @@ class ConcreteFutureImpl : public FutureImpl {
       case ShouldSchedule::ALWAYS:
         return true;
       case ShouldSchedule::IF_IDLE:
-        return callback_record.options.executor->HasIdleCapacity();
+        return from_unfinished || callback_record.options.executor->HasIdleCapacity();
       case ShouldSchedule::IF_UNFINISHED:
         return from_unfinished;
       default:

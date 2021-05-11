@@ -430,8 +430,8 @@ class ARROW_MUST_USE_TYPE Future : public FutureBase<T> {
     // We know impl_ will not be dangling when invoking callbacks because at least one
     // thread will be waiting for MarkFinished to return. Thus it's safe to keep a
     // weak reference to impl_ here
-    FutureBase<T>::impl_->AddCallback(
-        Callback<OnComplete>{WeakFuture<T>(*this), std::move(on_complete)}, opts);
+    FutureBase<T>::impl_->AddCallback(Callback<OnComplete>{*this, std::move(on_complete)},
+                                      opts);
   }
 
   /// \brief Overload of AddCallback that will return false instead of running
@@ -452,7 +452,7 @@ class ARROW_MUST_USE_TYPE Future : public FutureBase<T> {
                       CallbackOptions opts = CallbackOptions::Defaults()) const {
     return FutureBase<T>::impl_->TryAddCallback(
         [this, &callback_factory]() {
-          return Callback<detail::result_of_t<CallbackFactory()>>{WeakFuture<T>(*this),
+          return Callback<detail::result_of_t<CallbackFactory()>>{*this,
                                                                   callback_factory()};
         },
         opts);
@@ -581,11 +581,11 @@ class ARROW_MUST_USE_TYPE Future : public FutureBase<T> {
   template <typename OnComplete>
   struct Callback {
     void operator()() && {
-      auto self = weak_self.get();
+      // auto self = weak_self.get();
       std::move(on_complete)(*self.GetResult());
     }
 
-    WeakFuture<T> weak_self;
+    Future<T> self;
     OnComplete on_complete;
   };
 

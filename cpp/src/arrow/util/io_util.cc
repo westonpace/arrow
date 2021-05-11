@@ -1296,6 +1296,15 @@ Result<int64_t> FileReadAt(int fd, uint8_t* buffer, int64_t position, int64_t nb
   return bytes_read;
 }
 
+Status FileSync(int fd) {
+#if defined(_WIN32)
+  return Status::NotImplemented("FileSync not implemented yet on Windows");
+#else
+  sync();
+  return Status::OK();
+#endif
+}
+
 //
 // Writing data
 //

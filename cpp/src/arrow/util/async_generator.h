@@ -19,6 +19,7 @@
 
 #include <cassert>
 #include <deque>
+#include <iostream>
 #include <queue>
 
 #include "arrow/util/functional.h"
@@ -1190,14 +1191,18 @@ AsyncGenerator<Enumerated<T>> MakeEnumeratedGenerator(AsyncGenerator<T> source) 
 template <typename T>
 class TransferringGenerator {
  public:
-  explicit TransferringGenerator(AsyncGenerator<T> source, internal::Executor* executor)
-      : source_(std::move(source)), executor_(executor) {}
+  explicit TransferringGenerator(AsyncGenerator<T> source, internal::Executor* executor,
+                                 ShouldSchedule should_schedule)
+      : source_(std::move(source)),
+        executor_(executor),
+        should_schedule_(should_schedule) {}
 
-  Future<T> operator()() { return executor_->Transfer(source_()); }
+  Future<T> operator()() { return executor_->Transfer(source_(), should_schedule_); }
 
  private:
   AsyncGenerator<T> source_;
   internal::Executor* executor_;
+  ShouldSchedule should_schedule_;
 };
 
 /// \brief Transfers a future to an underlying executor.
@@ -1216,9 +1221,10 @@ class TransferringGenerator {
 ///
 /// This generator will not queue
 template <typename T>
-AsyncGenerator<T> MakeTransferredGenerator(AsyncGenerator<T> source,
-                                           internal::Executor* executor) {
-  return TransferringGenerator<T>(std::move(source), executor);
+AsyncGenerator<T> MakeTransferredGenerator(
+    AsyncGenerator<T> source, internal::Executor* executor,
+    ShouldSchedule should_schedule = ShouldSchedule::IF_UNFINISHED) {
+  return TransferringGenerator<T>(std::move(source), executor, should_schedule);
 }
 /// \see MakeIteratorGenerator
 template <typename T>
