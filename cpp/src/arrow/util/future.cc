@@ -26,6 +26,7 @@
 
 #include "arrow/util/checked_cast.h"
 #include "arrow/util/logging.h"
+#include "arrow/util/thread_pool.h"
 
 namespace arrow {
 
@@ -231,23 +232,65 @@ class ConcreteFutureImpl : public FutureImpl {
 
   void DoMarkFailed() { DoMarkFinishedOrFailed(FutureState::FAILURE); }
 
-  void AddCallback(Callback callback) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (IsFutureFinished(state_)) {
-      lock.unlock();
-      std::move(callback)();
-    } else {
-      callbacks_.push_back(std::move(callback));
+  void CheckOptions(const CallbackOptions& opts) {
+    if (opts.should_schedule != ShouldSchedule::NEVER) {
+      DCHECK_NE(opts.executor, NULL)
+          << "An executor must be specified when adding a callback that might schedule";
     }
   }
 
-  bool TryAddCallback(const std::function<Callback()>& callback_factory) {
+  void AddCallback(Callback callback, CallbackOptions opts) {
+    CheckOptions(opts);
+    std::unique_lock<std::mutex> lock(mutex_);
+    CallbackRecord callback_record{std::move(callback), opts};
+    if (IsFutureFinished(state_)) {
+      lock.unlock();
+      RunOrScheduleCallback(callback_record, /*from_unfinished=*/false);
+    } else {
+      callbacks_.push_back(std::move(callback_record));
+    }
+  }
+
+  bool TryAddCallback(const std::function<Callback()>& callback_factory,
+                      CallbackOptions opts) {
+    CheckOptions(opts);
     std::unique_lock<std::mutex> lock(mutex_);
     if (IsFutureFinished(state_)) {
       return false;
     } else {
-      callbacks_.push_back(callback_factory());
+      callbacks_.push_back({callback_factory(), opts});
       return true;
+    }
+  }
+
+  bool ShouldSchedule(const CallbackRecord& callback_record, bool from_unfinished) {
+    switch (callback_record.options.should_schedule) {
+      case ShouldSchedule::NEVER:
+        return false;
+      case ShouldSchedule::ALWAYS:
+        return true;
+      case ShouldSchedule::IF_UNFINISHED:
+        return from_unfinished;
+      default:
+        DCHECK(false) << "Unrecognized ShouldSchedule option";
+        return false;
+    }
+  }
+
+  void RunOrScheduleCallback(CallbackRecord& callback_record, bool from_unfinished) {
+    if (ShouldSchedule(callback_record, from_unfinished)) {
+      // Need to make a copy of this to keep it alive until the callback has a chance
+      // to be scheduled.
+      struct CallbackTask {
+        void operator()() { std::move(callback)(*self); }
+
+        Callback callback;
+        std::shared_ptr<FutureImpl> self;
+      };
+      CallbackTask task{std::move(callback_record.callback), shared_from_this()};
+      DCHECK_OK(callback_record.options.executor->Spawn(std::move(task)));
+    } else {
+      std::move(callback_record.callback)(*this);
     }
   }
 
@@ -272,8 +315,8 @@ class ConcreteFutureImpl : public FutureImpl {
     //
     // In fact, it is important not to hold the locks because the callback
     // may be slow or do its own locking on other resources
-    for (auto&& callback : callbacks_) {
-      std::move(callback)();
+    for (auto& callback_record : callbacks_) {
+      RunOrScheduleCallback(callback_record, /*from_unfinished=*/true);
     }
     callbacks_.clear();
   }
@@ -334,12 +377,13 @@ void FutureImpl::MarkFinished() { GetConcreteFuture(this)->DoMarkFinished(); }
 
 void FutureImpl::MarkFailed() { GetConcreteFuture(this)->DoMarkFailed(); }
 
-void FutureImpl::AddCallback(Callback callback) {
-  GetConcreteFuture(this)->AddCallback(std::move(callback));
+void FutureImpl::AddCallback(Callback callback, CallbackOptions opts) {
+  GetConcreteFuture(this)->AddCallback(std::move(callback), opts);
 }
 
-bool FutureImpl::TryAddCallback(const std::function<Callback()>& callback_factory) {
-  return GetConcreteFuture(this)->TryAddCallback(callback_factory);
+bool FutureImpl::TryAddCallback(const std::function<Callback()>& callback_factory,
+                                CallbackOptions opts) {
+  return GetConcreteFuture(this)->TryAddCallback(callback_factory, opts);
 }
 
 Future<> AllComplete(const std::vector<Future<>>& futures) {
