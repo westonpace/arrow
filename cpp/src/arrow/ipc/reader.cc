@@ -1224,7 +1224,7 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
     int file_end_size = static_cast<int>(magic_size + sizeof(int32_t));
     auto self = std::dynamic_pointer_cast<RecordBatchFileReaderImpl>(shared_from_this());
     auto read_magic = file_->ReadAsync(footer_offset_ - file_end_size, file_end_size);
-    if (executor) read_magic = executor->Transfer(std::move(read_magic));
+    if (executor) read_magic = executor->Transfer(std::move(read_magic), true);
     return read_magic
         .Then([=](const std::shared_ptr<Buffer>& buffer)
                   -> Future<std::shared_ptr<Buffer>> {
@@ -1249,7 +1249,7 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
           // Now read the footer
           auto read_footer = self->file_->ReadAsync(
               self->footer_offset_ - footer_length - file_end_size, footer_length);
-          if (executor) read_footer = executor->Transfer(std::move(read_footer));
+          if (executor) read_footer = executor->Transfer(std::move(read_footer), true);
           return read_footer;
         })
         .Then([=](const std::shared_ptr<Buffer>& buffer) -> Status {
@@ -1366,7 +1366,7 @@ Future<IpcFileRecordBatchGenerator::Item> IpcFileRecordBatchGenerator::operator(
       messages[i] = ReadBlock(block);
     }
     auto read_messages = All(std::move(messages));
-    if (executor_) read_messages = executor_->Transfer(read_messages);
+    if (executor_) read_messages = executor_->Transfer(read_messages, true);
     read_dictionaries_ = read_messages.Then(
         [=](const std::vector<Result<std::shared_ptr<Message>>> maybe_messages)
             -> Status {

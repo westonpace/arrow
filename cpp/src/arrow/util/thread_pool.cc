@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <condition_variable>
 #include <deque>
+#include <iostream>
 #include <list>
 #include <mutex>
 #include <string>
@@ -28,6 +29,7 @@
 
 #include "arrow/util/io_util.h"
 #include "arrow/util/logging.h"
+#include "arrow/util/ws_thread_pool.h"
 
 namespace arrow {
 namespace internal {
@@ -112,6 +114,7 @@ struct ThreadPool::Control {
   // Condition variable that the thread pool waits on when it is waiting for all worker
   // threads to finish while shutting down
   std::condition_variable cv_shutdown;
+  std::condition_variable cv_idle;
 };
 
 void ThreadPool::ResetAfterFork() {
@@ -148,7 +151,7 @@ void ThreadPool::RecordTaskSubmitted() {
 }
 
 void ThreadPool::RecordFinishedTask() {
-  num_tasks_running_.fetch_sub(1, std::memory_order_relaxed);
+  num_tasks_running_.fetch_sub(1, std::memory_order_release);
 }
 
 uint64_t ThreadPool::NumTasksRunningOrQueued() const {
@@ -417,7 +420,13 @@ void ThreadPool::NotifyIdleWorker() { control_->cv_idle_workers.notify_one(); }
 
 void ThreadPool::WaitForWork() {
   std::unique_lock<std::mutex> lock(control_->mx);
+  control_->cv_idle.notify_all();
   control_->cv_idle_workers.wait(lock, [this] { return !Empty() || please_shutdown_; });
+}
+
+void ThreadPool::WaitForIdle() {
+  std::unique_lock<std::mutex> lock(control_->mx);
+  control_->cv_idle.wait(lock, [this] { return NumTasksRunningOrQueued() == 0; });
 }
 
 Result<std::shared_ptr<ThreadPool>> SimpleThreadPool::Make(int threads) {
@@ -536,16 +545,22 @@ int ThreadPool::DefaultCapacity() {
 }
 
 // Helper for the singleton pattern
-std::shared_ptr<ThreadPool> ThreadPool::MakeCpuThreadPool() {
-  auto maybe_pool = SimpleThreadPool::MakeEternal(ThreadPool::DefaultCapacity());
+std::shared_ptr<ThreadPool> ThreadPool::MakeCpuThreadPool(bool work_stealing) {
+  Result<std::shared_ptr<ThreadPool>> maybe_pool;
+  if (work_stealing) {
+    maybe_pool = WorkStealingThreadPool::MakeEternal(ThreadPool::DefaultCapacity());
+  } else {
+    maybe_pool = SimpleThreadPool::MakeEternal(ThreadPool::DefaultCapacity());
+  }
   if (!maybe_pool.ok()) {
     maybe_pool.status().Abort("Failed to create global CPU thread pool");
   }
   return *std::move(maybe_pool);
 }
 
-ThreadPool* GetCpuThreadPool() {
-  static std::shared_ptr<ThreadPool> singleton = ThreadPool::MakeCpuThreadPool();
+ThreadPool* GetCpuThreadPool(bool work_stealing) {
+  static std::shared_ptr<ThreadPool> singleton =
+      ThreadPool::MakeCpuThreadPool(work_stealing);
   return singleton.get();
 }
 

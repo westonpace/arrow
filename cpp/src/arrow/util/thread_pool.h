@@ -319,6 +319,10 @@ class ARROW_EXPORT ThreadPool : public Executor {
   // tasks are finished.
   Status Shutdown(bool wait = true);
 
+  void WaitForIdle();
+
+  virtual std::string name() const = 0;
+
   // ------------- Statistics API ---------------
 
   /// The current number of tasks either currently running or in the queue to run
@@ -361,7 +365,7 @@ class ARROW_EXPORT ThreadPool : public Executor {
   template <typename T>
   FRIEND_TEST(TestThreadPool, SetCapacity);
   FRIEND_TEST(TestGlobalThreadPool, Capacity);
-  friend ARROW_EXPORT ThreadPool* GetCpuThreadPool();
+  friend ARROW_EXPORT ThreadPool* GetCpuThreadPool(bool);
 
   ThreadPool();
 
@@ -396,7 +400,7 @@ class ARROW_EXPORT ThreadPool : public Executor {
   void ProtectAgainstFork();
   void RecordTaskSubmitted();
 
-  static std::shared_ptr<ThreadPool> MakeCpuThreadPool();
+  static std::shared_ptr<ThreadPool> MakeCpuThreadPool(bool work_stealing = false);
 
   std::atomic<uint64_t> num_tasks_running_;
   std::atomic<uint64_t> total_tasks_;
@@ -446,6 +450,7 @@ class ARROW_EXPORT SimpleThreadPool
   void DoSubmitTask(TaskHints hints, Task task) override;
   util::optional<Task> PopTask();
   bool Empty() override;
+  inline std::string name() const override { return "simple"; }
 
   std::deque<Task> pending_tasks_;
   // Store task count separately so we can quickly check if pending_tasks_ is empty
@@ -454,7 +459,7 @@ class ARROW_EXPORT SimpleThreadPool
 };
 
 // Return the process-global thread pool for CPU-bound tasks.
-ARROW_EXPORT ThreadPool* GetCpuThreadPool();
+ARROW_EXPORT ThreadPool* GetCpuThreadPool(bool work_stealing = false);
 
 /// \brief Potentially run an async operation serially (if use_threads is false)
 /// \see RunSerially

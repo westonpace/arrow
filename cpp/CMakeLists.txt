@@ -840,7 +840,7 @@ if(ARROW_BUILD_BENCHMARKS)
     add_library(benchmark::benchmark_main ALIAS arrow_benchmark_main)
   endif()
 
-  set(ARROW_BENCHMARK_LINK_LIBS benchmark::benchmark_main benchmark::benchmark
+  set(ARROW_BENCHMARK_LINK_LIBS papi benchmark::benchmark_main benchmark::benchmark
                                 ${ARROW_TEST_LINK_LIBS})
   if(WIN32)
     set(ARROW_BENCHMARK_LINK_LIBS Shlwapi.dll ${ARROW_BENCHMARK_LINK_LIBS})

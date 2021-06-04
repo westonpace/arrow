@@ -221,8 +221,10 @@ Result<RecordBatchGenerator> IpcFileFormat::ScanBatchesAsync(
                          /*coalesce=*/true, options->io_context,
                          *ipc_scan_options->cache_options, internal::GetCpuThreadPool()));
     } else {
-      ARROW_ASSIGN_OR_RAISE(generator, reader->GetRecordBatchGenerator(
-                                           /*coalesce=*/false, options->io_context));
+      ARROW_ASSIGN_OR_RAISE(
+          generator, reader->GetRecordBatchGenerator(
+                         /*coalesce=*/false, options->io_context,
+                         io::CacheOptions::LazyDefaults(), internal::GetCpuThreadPool()));
     }
     return MakeReadaheadGenerator(std::move(generator), readahead_level);
   };

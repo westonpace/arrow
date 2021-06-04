@@ -18,17 +18,21 @@
 #include "benchmark/benchmark.h"
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <random>
+#include <thread>
 #include <vector>
 
 #include "arrow/status.h"
 #include "arrow/testing/gtest_util.h"
+#include "arrow/util/papi_util.cc"
 #include "arrow/util/task_group.h"
 #include "arrow/util/thread_pool.h"
 #include "arrow/util/ws_thread_pool.h"
@@ -60,6 +64,47 @@ void Workload::operator()() {
     }
   }
   benchmark::DoNotOptimize(result);
+}
+
+struct IoWorkload {
+  IoWorkload() {}
+
+  void operator()();
+
+  void resize(int32_t size, int id, bool sequential) {
+    label_ = std::to_string(id) + ": ";
+    sequential_ = sequential;
+    data_.resize(size);
+    std::default_random_engine gen(42);
+    std::uniform_int_distribution<uint8_t> dist(0, std::numeric_limits<uint8_t>::max());
+    std::generate(data_.begin(), data_.end(), [&]() { return dist(gen); });
+
+    offsets_.resize(size);
+    std::uniform_int_distribution<uint32_t> offsets_dist(0, size);
+    std::generate(offsets_.begin(), offsets_.end(), [&]() { return offsets_dist(gen); });
+  }
+
+  ARROW_DISALLOW_COPY_AND_ASSIGN(IoWorkload);
+
+ private:
+  std::vector<uint8_t> data_;
+  std::vector<uint32_t> offsets_;
+  std::string label_;
+  bool sequential_;
+};
+
+void IoWorkload::operator()() {
+  // auto msg = label_ +
+  //            std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) +
+  //            "\n";
+  // std::cout << msg;
+  if (sequential_) {
+    benchmark::DoNotOptimize(std::accumulate(data_.begin(), data_.end(), 0));
+  } else {
+    benchmark::DoNotOptimize(
+        std::accumulate(offsets_.begin(), offsets_.end(), 0,
+                        [this](int sum, uint32_t off) { return sum + data_[off]; }));
+  }
 }
 
 struct Task {
@@ -97,6 +142,7 @@ static ThreadPoolFactory FactoryFromArg(int32_t arg) {
       return MakeWorkStealing();
     default:
       assert(false);
+      return MakeSimple();
   }
 }
 
@@ -159,6 +205,7 @@ static void ThreadPoolNestedSpawn(
       }));
     }
 
+    pool->WaitForIdle();
     // Wait for all tasks to finish
     ABORT_NOT_OK(pool->Shutdown(true /* wait */));
     state.PauseTiming();
@@ -167,6 +214,59 @@ static void ThreadPoolNestedSpawn(
   }
   state.SetItemsProcessed(state.iterations() * spawns_per_thread * nthreads);
 }
+
+static void ThreadPoolNestedWorkStealing(benchmark::State& state) {
+  const auto thread_pool_factory = FactoryFromArg(state.range(0));
+  const auto nthreads = static_cast<int>(state.range(1));
+  const auto workload_size = 2 << static_cast<int32_t>(state.range(2));
+  const bool sequential = false;
+
+  // Spawn enough tasks to make the pool start up overhead negligible
+  const int32_t nspawns = 2000000000 / workload_size + 1;
+  const int32_t nworkloads = 32;
+  const int32_t spawns_per_workload = nspawns / nworkloads;
+
+  auto pool = thread_pool_factory(nthreads);
+
+  std::vector<IoWorkload> workloads(nworkloads);
+  std::vector<int> workload_counts(nworkloads);
+  std::vector<std::function<void()>> tasks(nworkloads);
+  for (int i = 0; i < nworkloads; i++) {
+    workloads[i].resize(workload_size, i, sequential);
+    workload_counts[i] = spawns_per_workload;
+    tasks[i] = [i, &pool, &tasks, &workloads, &workload_counts] {
+      workloads[i]();
+      auto remaining = --workload_counts[i];
+      if (remaining > 0) {
+        pool->Spawn(tasks[i]);
+      }
+    };
+  }
+
+  // ASSERT_OK_AND_ASSIGN(auto papi_counters,
+  //                      PapiCounters::Make({"L1D_PEND_MISS:PENDING", "L2_RQSTS",
+  //                                          "L2_RQSTS:MISS", "ix86arch::LLC_MISSES"}));
+  // ABORT_NOT_OK(papi_counters.Start());
+  for (auto _ : state) {
+    // Pass the task by reference to avoid copying it around
+    for (int32_t i = 0; i < nworkloads; ++i) {
+      ABORT_NOT_OK(pool->Spawn(tasks[i]));
+    }
+
+    pool->WaitForIdle();
+  }
+  // ABORT_NOT_OK(papi_counters.Finish());
+  // ABORT_NOT_OK(papi_counters.AddToBenchmark(state));
+  // // Wait for all tasks to finish
+  // ABORT_NOT_OK(pool->Shutdown(true /* wait */));
+  state.SetItemsProcessed(state.iterations() * spawns_per_workload * nworkloads);
+  if (state.range(0) == 2) {
+    std::cout
+        << internal::checked_pointer_cast<WorkStealingThreadPool>(pool)->NumNormal()
+        << " "
+        << internal::checked_pointer_cast<WorkStealingThreadPool>(pool)->NumStolen();
+  }
+}  // namespace internal
 
 // Benchmark SerialExecutor::RunInSerialExecutor
 static void RunInSerialExecutor(benchmark::State& state) {  // NOLINT non-const reference
@@ -267,6 +367,9 @@ static void ThreadedTaskGroup(benchmark::State& state) {  // NOLINT non-const re
 }
 
 static const std::vector<int32_t> kWorkloadSizes = {1000, 10000, 100000};
+static const std::vector<int32_t> kBigWorkloadSizes = {9,  10, 11, 12, 13, 14,
+                                                       15, 16, 17, 18, 19, 20};
+// static const std::vector<int32_t> kBigWorkloadSizes = {18};
 
 static void WorkloadCost_Customize(benchmark::internal::Benchmark* b) {
   for (const int32_t w : kWorkloadSizes) {
@@ -286,6 +389,21 @@ static void ThreadPoolSpawn_Customize(benchmark::internal::Benchmark* b) {
   }
   b->ArgNames({"impl", "threads", "task_cost"});
   b->UseRealTime();
+}
+
+static void ThreadPoolSpawn_Customize_Big(benchmark::internal::Benchmark* b) {
+  for (const int32_t thread_pool_type : kThreadPoolImpls) {
+    for (const int32_t w : kBigWorkloadSizes) {
+      for (const int nthreads : {8}) {
+        // for (const int nthreads : {1, 2, 4, 8}) {
+        b->Args({thread_pool_type, nthreads, w});
+      }
+    }
+  }
+  b->ArgNames({"impl", "threads", "task_cost"});
+  b->UseRealTime();
+  b->Iterations(100);
+  // b->Iterations(1);
 }
 
 #ifdef ARROW_WITH_BENCHMARKS_REFERENCE
@@ -312,6 +430,7 @@ BENCHMARK(SerialTaskGroup)->Apply(WorkloadCost_Customize);
 BENCHMARK(RunInSerialExecutor)->Apply(WorkloadCost_Customize);
 BENCHMARK(ThreadPoolSpawn)->Apply(ThreadPoolSpawn_Customize);
 BENCHMARK(ThreadPoolNestedSpawn)->Apply(ThreadPoolSpawn_Customize);
+BENCHMARK(ThreadPoolNestedWorkStealing)->Apply(ThreadPoolSpawn_Customize_Big);
 BENCHMARK(ThreadedTaskGroup)->Apply(ThreadPoolSpawn_Customize);
 BENCHMARK(ThreadPoolSubmit)->Apply(ThreadPoolSpawn_Customize);
 

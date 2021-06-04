@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -84,7 +85,12 @@ static T inplace_add(T& x, T y) {
 class AddTester {
  public:
   explicit AddTester(int nadds, StopToken stop_token = StopToken::Unstoppable())
-      : nadds_(nadds), stop_token_(stop_token), xs_(nadds), ys_(nadds), outs_(nadds, -1) {
+      : nadds_(nadds),
+        stop_token_(stop_token),
+        xs_(nadds),
+        ys_(nadds),
+        outs_(nadds, -1),
+        calls_made_(std::make_shared<std::atomic<int>>(0)) {
     int x = 0, y = 0;
     std::generate(xs_.begin(), xs_.end(), [&] {
       ++x;
@@ -100,11 +106,17 @@ class AddTester {
 
   void SpawnTasks(ThreadPool* pool, AddTaskFunc add_func) {
     for (int i = 0; i < nadds_; ++i) {
-      ASSERT_OK(pool->Spawn([=] { add_func(xs_[i], ys_[i], &outs_[i]); }, stop_token_));
+      ASSERT_OK(pool->Spawn(
+          [this, i, add_func] {
+            add_func(xs_[i], ys_[i], &outs_[i]);
+            calls_made_->fetch_add(1);
+          },
+          stop_token_));
     }
   }
 
   void CheckResults() {
+    ASSERT_EQ(nadds_, calls_made_->load());
     for (int i = 0; i < nadds_; ++i) {
       ASSERT_EQ(outs_[i], (i + 1) * 11);
     }
@@ -127,6 +139,7 @@ class AddTester {
   std::vector<int> xs_;
   std::vector<int> ys_;
   std::vector<int> outs_;
+  std::shared_ptr<std::atomic<int>> calls_made_;
 };
 
 class TestRunSynchronously : public testing::TestWithParam<bool> {
@@ -338,6 +351,24 @@ class TestThreadPool : public ::testing::Test {
     DoSpawnAdds(pool, nadds, std::move(add_func), stop_source->token(), stop_source);
   }
 
+  void DoSpawnAddsNested(ThreadPool* pool, int nadds, AddTaskFunc add_func) {
+    std::list<AddTester> add_testers;
+    for (int i = 0; i < pool->GetCapacity(); i++) {
+      add_testers.emplace_back(nadds);
+      auto& add_tester = add_testers.back();
+      ASSERT_OK(pool->Spawn(
+          [&add_tester, &pool, add_func, i] { add_tester.SpawnTasks(pool, add_func); }));
+    }
+    pool->WaitForIdle();
+    for (auto& add_tester : add_testers) {
+      add_tester.CheckResults();
+    }
+  }
+
+  void SpawnAddsNested(ThreadPool* pool, int nadds, AddTaskFunc add_func) {
+    DoSpawnAddsNested(pool, nadds, std::move(add_func));
+  }
+
   void DoSpawnAddsThreaded(ThreadPool* pool, int nthreads, int nadds,
                            AddTaskFunc add_func,
                            StopToken stop_token = StopToken::Unstoppable(),
@@ -400,6 +431,11 @@ TYPED_TEST(TestThreadPool, Spawn) {
 TYPED_TEST(TestThreadPool, StressSpawn) {
   auto pool = this->MakeThreadPool(30);
   this->SpawnAdds(pool.get(), 1000, task_add<int>);
+}
+
+TYPED_TEST(TestThreadPool, StressSpawnNested) {
+  auto pool = this->MakeThreadPool(30);
+  this->SpawnAddsNested(pool.get(), 1000, task_add<int>);
 }
 
 TYPED_TEST(TestThreadPool, StressSpawnThreaded) {

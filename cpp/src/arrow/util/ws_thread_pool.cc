@@ -173,6 +173,56 @@ void WorkQueue::Clear() {
   top_.store(0);
 }
 
+struct NaiveWorkQueue::Control {
+  std::mutex mx;
+};
+
+NaiveWorkQueue::NaiveWorkQueue(std::size_t initial_capacity)
+    : control_(std::make_shared<NaiveWorkQueue::Control>()), queue_(), num_tasks_(0) {}
+NaiveWorkQueue::~NaiveWorkQueue() = default;
+
+bool NaiveWorkQueue::Empty() const { return Size() == 0; }
+
+std::size_t NaiveWorkQueue::Size() const {
+  return num_tasks_.load(std::memory_order_acquire);
+}
+
+std::size_t NaiveWorkQueue::Capacity() const { return -1; }
+
+void NaiveWorkQueue::Push(ThreadPool::Task* task) {
+  std::lock_guard<std::mutex> lock(control_->mx);
+  num_tasks_.fetch_add(1, std::memory_order_release);
+  queue_.push_back(task);
+}
+
+ThreadPool::Task* NaiveWorkQueue::Pop() {
+  std::lock_guard<std::mutex> lock(control_->mx);
+  if (queue_.empty()) {
+    return nullptr;
+  }
+  num_tasks_.fetch_sub(1, std::memory_order_release);
+  auto task = queue_.back();
+  queue_.pop_back();
+  return task;
+}
+
+ThreadPool::Task* NaiveWorkQueue::Steal() {
+  std::lock_guard<std::mutex> lock(control_->mx);
+  if (queue_.empty()) {
+    return nullptr;
+  }
+  num_tasks_.fetch_sub(1, std::memory_order_release);
+  auto task = queue_.front();
+  queue_.pop_front();
+  return task;
+}
+
+void NaiveWorkQueue::Clear() { queue_.clear(); }
+
+struct WorkStealingThreadPool::WSControl {
+  std::mutex mx;
+};
+
 Result<std::shared_ptr<ThreadPool>> WorkStealingThreadPool::Make(int threads) {
   auto pool = std::shared_ptr<ThreadPool>(new WorkStealingThreadPool(threads));
   RETURN_NOT_OK(pool->SetCapacity(threads));
@@ -191,7 +241,12 @@ Result<std::shared_ptr<ThreadPool>> WorkStealingThreadPool::MakeEternal(int thre
 }
 
 WorkStealingThreadPool::WorkStealingThreadPool(int capacity)
-    : task_queues_(capacity), next_thread_index_(0), searching_(0){};
+    : task_queues_(capacity),
+      ws_control_(std::make_shared<WSControl>()),
+      next_thread_index_(0),
+      searching_(0),
+      num_stolen_(0),
+      num_normal_(0){};
 
 WorkStealingThreadPool::~WorkStealingThreadPool() {
   // In the event of a quick shutdown we may have extra tasks lying around
@@ -245,16 +300,13 @@ std::shared_ptr<Thread> WorkStealingThreadPool::LaunchWorker(ThreadPool::Control
 void WorkStealingThreadPool::DoSubmitTask(TaskHints hints, ThreadPool::Task task) {
   auto task_ptr = new ThreadPool::Task(std::move(task));
   if (tls_thread_index == NOT_IN_POOL) {
-    // FIXME: Not safe as multiple threads may be pushing to the unaffiliated queue
+    std::lock_guard<std::mutex> lock(ws_control_->mx);
     unaffiliated_queue_.Push(task_ptr);
   } else {
     DCHECK_LT(tls_thread_index, task_queues_.size());
     task_queues_[tls_thread_index].Push(task_ptr);
   }
-  // If we are already searching then the searcher will notify when done
-  if (!searching_.load()) {
-    NotifyIdleWorker();
-  }
+  NotifyIdleWorker();
 }
 
 namespace {
@@ -276,6 +328,9 @@ void RunTask(ThreadPool::Task* task, const std::shared_ptr<ThreadPool>& thread_p
 }  // namespace
 
 bool WorkStealingThreadPool::Empty() { return unaffiliated_queue_.Empty(); }
+
+uint64_t WorkStealingThreadPool::NumStolen() const { return num_stolen_.load(); }
+uint64_t WorkStealingThreadPool::NumNormal() const { return num_normal_.load(); }
 
 void WorkStealingThreadPool::WorkerLoop(
     std::shared_ptr<WorkStealingThreadPool> thread_pool, Control* tp_control,
@@ -302,6 +357,7 @@ void WorkStealingThreadPool::WorkerLoop(
           if (PRINT_DEBUG) {
             std::cout << tls_thread_index << ": Found my task" << std::endl;
           }
+          thread_pool->num_normal_.fetch_add(1, std::memory_order_relaxed);
           RunTask(task, thread_pool);
         }
       }
@@ -342,9 +398,11 @@ void WorkStealingThreadPool::WorkerLoop(
       // If we were able to find a task it seems likely there is work to do so wake up
       // sibling
       if (stolen_task) {
+        task_stolen = true;
         if (PRINT_DEBUG) {
           std::cout << tls_thread_index << ": Running stolen task" << std::endl;
         }
+        thread_pool->num_stolen_.fetch_add(1, std::memory_order_relaxed);
         thread_pool->NotifyIdleWorker();
         RunTask(stolen_task, thread_pool);
       }

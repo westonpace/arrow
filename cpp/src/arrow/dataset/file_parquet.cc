@@ -355,6 +355,7 @@ Future<std::shared_ptr<parquet::arrow::FileReader>> ParquetFileFormat::GetReader
         std::shared_ptr<parquet::FileMetaData> metadata = reader->metadata();
         auto arrow_properties = MakeArrowReaderProperties(*self, *metadata);
         arrow_properties.set_batch_size(options->batch_size);
+        arrow_properties.set_use_threads(true);
         // TODO: ARROW-12597 will let us enable parallel conversion
         if (!options->use_threads) {
           arrow_properties.set_use_threads(

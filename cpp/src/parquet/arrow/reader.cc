@@ -1012,7 +1012,7 @@ class RowGroupGenerator {
     }
     auto ready = reader->parquet_reader()->WhenBuffered({row_group}, column_indices);
     // TODO(ARROW-12916): always transfer here
-    if (cpu_executor_) ready = cpu_executor_->Transfer(ready);
+    if (cpu_executor_) ready = cpu_executor_->Transfer(ready, true);
     return ready.Then([=]() -> ::arrow::Future<RecordBatchGenerator> {
       return ReadOneRowGroup(reader, row_group, column_indices);
     });

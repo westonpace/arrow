@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <cstddef>
 #include <list>
 #include <vector>
@@ -108,11 +110,38 @@ class WorkQueue {
   std::vector<ResizableRingBuffer*> to_delete_;
 };
 
+class NaiveWorkQueue {
+ public:
+  NaiveWorkQueue(std::size_t initial_capacity = kDefaultWorkQueueSize);
+  ~NaiveWorkQueue();
+  bool Empty() const;
+  std::size_t Size() const;
+  std::size_t Capacity() const;
+
+  /// Adds an item to the bottom of the stack
+  /// NB: Must only be called by the owning thread
+  void Push(ThreadPool::Task* task);
+  /// Pulls an item off the bottom of the stack
+  /// NB: Must only be called by the owning thread
+  ThreadPool::Task* Pop();
+  /// Steals an item off the top of the stack
+  ThreadPool::Task* Steal();
+  /// Clears the queue, not safe to call concurrently with any other methods
+  void Clear();
+
+  struct Control;
+
+ private:
+  std::shared_ptr<Control> control_;
+  std::deque<ThreadPool::Task*> queue_;
+  std::atomic<uint64_t> num_tasks_;
+};
+
 class ARROW_EXPORT WorkStealingThreadPool
     : public ThreadPool,
       public std::enable_shared_from_this<WorkStealingThreadPool> {
  public:
-  using QueueIt = std::list<WorkQueue>::iterator;
+  using QueueIt = std::list<NaiveWorkQueue>::iterator;
   // Construct a thread pool with the given number of worker threads
   static Result<std::shared_ptr<ThreadPool>> Make(int threads);
 
@@ -122,6 +151,13 @@ class ARROW_EXPORT WorkStealingThreadPool
 
   // Destroy thread pool; the pool will first be shut down
   ~WorkStealingThreadPool() override;
+
+  uint64_t NumStolen() const;
+  uint64_t NumNormal() const;
+
+  inline std::string name() const override { return "work-stealing"; }
+
+  struct WSControl;
 
  protected:
   WorkStealingThreadPool(int capacity);
@@ -134,11 +170,15 @@ class ARROW_EXPORT WorkStealingThreadPool
   void DoSubmitTask(TaskHints hints, ThreadPool::Task task) override;
 
   // Tasks submitted from outside the work stealing thread pool go here
-  WorkQueue unaffiliated_queue_;
+  NaiveWorkQueue unaffiliated_queue_;
   // Each thread also has its own queue of tasks
-  std::vector<WorkQueue> task_queues_;
+  std::vector<NaiveWorkQueue> task_queues_;
+  // Lock elements needed specifically by the work stealing thread queue
+  std::shared_ptr<WSControl> ws_control_;
   std::atomic<std::size_t> next_thread_index_;
   std::atomic<int> searching_;
+  std::atomic<uint64_t> num_stolen_;
+  std::atomic<uint64_t> num_normal_;
 };
 
 }  // namespace internal

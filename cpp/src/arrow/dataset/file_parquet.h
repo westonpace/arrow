@@ -223,7 +223,7 @@ class ARROW_DS_EXPORT ParquetFragmentScanOptions : public FragmentScanOptions {
   /// scan is already parallelized across input files to avoid thread contention. This
   /// option will be removed after support is added for simultaneous parallelization
   /// across files and columns.
-  bool enable_parallel_column_conversion = false;
+  bool enable_parallel_column_conversion = true;
 };
 
 class ARROW_DS_EXPORT ParquetFileWriteOptions : public FileWriteOptions {
