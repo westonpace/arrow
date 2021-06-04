@@ -1163,6 +1163,8 @@ cdef extern from "arrow/io/api.h" namespace "arrow::io" nogil:
         CIOContext(CMemoryPool*, CStopToken)
 
     CIOContext c_default_io_context "arrow::io::default_io_context"()
+    int GetIOThreadPoolCapacity()
+    CStatus SetIOThreadPoolCapacity(int threads)
 
     cdef cppclass FileStatistics:
         int64_t size
@@ -1194,7 +1196,7 @@ cdef extern from "arrow/io/api.h" namespace "arrow::io" nogil:
 
     cdef cppclass CInputStream" arrow::io::InputStream"(FileInterface,
                                                         Readable):
-        pass
+        CResult[shared_ptr[const CKeyValueMetadata]] ReadMetadata()
 
     cdef cppclass CRandomAccessFile" arrow::io::RandomAccessFile"(CInputStream,
                                                                   Seekable):
@@ -1781,8 +1783,9 @@ cdef extern from "arrow/compute/api.h" namespace "arrow::compute" nogil:
 
     cdef cppclass CMatchSubstringOptions \
             "arrow::compute::MatchSubstringOptions"(CFunctionOptions):
-        CMatchSubstringOptions(c_string pattern)
+        CMatchSubstringOptions(c_string pattern, c_bool ignore_case)
         c_string pattern
+        c_bool ignore_case
 
     cdef cppclass CTrimOptions \
             "arrow::compute::TrimOptions"(CFunctionOptions):

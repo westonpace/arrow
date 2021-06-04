@@ -812,6 +812,10 @@ compute___expr__type <- function(x, schema){
     .Call(`_arrow_compute___expr__type`, x, schema)
 }
 
+compute___expr__type_id <- function(x, schema){
+    .Call(`_arrow_compute___expr__type_id`, x, schema)
+}
+
 ipc___WriteFeather__Table <- function(stream, table, version, chunk_size, compression, compression_level){
     invisible(.Call(`_arrow_ipc___WriteFeather__Table`, stream, table, version, chunk_size, compression, compression_level))
 }
@@ -1718,6 +1722,14 @@ GetCpuThreadPoolCapacity <- function(){
 
 SetCpuThreadPoolCapacity <- function(threads){
     invisible(.Call(`_arrow_SetCpuThreadPoolCapacity`, threads))
+}
+
+GetIOThreadPoolCapacity <- function(){
+    .Call(`_arrow_GetIOThreadPoolCapacity`)
+}
+
+SetIOThreadPoolCapacity <- function(threads){
+    invisible(.Call(`_arrow_SetIOThreadPoolCapacity`, threads))
 }
 
 Array__infer_type <- function(x){

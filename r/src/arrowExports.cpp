@@ -3145,6 +3145,22 @@ extern "C" SEXP _arrow_compute___expr__type(SEXP x_sexp, SEXP schema_sexp){
 }
 #endif
 
+// expression.cpp
+#if defined(ARROW_R_WITH_ARROW)
+arrow::Type::type compute___expr__type_id(const std::shared_ptr<compute::Expression>& x, const std::shared_ptr<arrow::Schema>& schema);
+extern "C" SEXP _arrow_compute___expr__type_id(SEXP x_sexp, SEXP schema_sexp){
+BEGIN_CPP11
+	arrow::r::Input<const std::shared_ptr<compute::Expression>&>::type x(x_sexp);
+	arrow::r::Input<const std::shared_ptr<arrow::Schema>&>::type schema(schema_sexp);
+	return cpp11::as_sexp(compute___expr__type_id(x, schema));
+END_CPP11
+}
+#else
+extern "C" SEXP _arrow_compute___expr__type_id(SEXP x_sexp, SEXP schema_sexp){
+	Rf_error("Cannot call compute___expr__type_id(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
+}
+#endif
+
 // feather.cpp
 #if defined(ARROW_R_WITH_ARROW)
 void ipc___WriteFeather__Table(const std::shared_ptr<arrow::io::OutputStream>& stream, const std::shared_ptr<arrow::Table>& table, int version, int chunk_size, arrow::Compression::type compression, int compression_level);
@@ -6759,6 +6775,36 @@ extern "C" SEXP _arrow_SetCpuThreadPoolCapacity(SEXP threads_sexp){
 }
 #endif
 
+// threadpool.cpp
+#if defined(ARROW_R_WITH_ARROW)
+int GetIOThreadPoolCapacity();
+extern "C" SEXP _arrow_GetIOThreadPoolCapacity(){
+BEGIN_CPP11
+	return cpp11::as_sexp(GetIOThreadPoolCapacity());
+END_CPP11
+}
+#else
+extern "C" SEXP _arrow_GetIOThreadPoolCapacity(){
+	Rf_error("Cannot call GetIOThreadPoolCapacity(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
+}
+#endif
+
+// threadpool.cpp
+#if defined(ARROW_R_WITH_ARROW)
+void SetIOThreadPoolCapacity(int threads);
+extern "C" SEXP _arrow_SetIOThreadPoolCapacity(SEXP threads_sexp){
+BEGIN_CPP11
+	arrow::r::Input<int>::type threads(threads_sexp);
+	SetIOThreadPoolCapacity(threads);
+	return R_NilValue;
+END_CPP11
+}
+#else
+extern "C" SEXP _arrow_SetIOThreadPoolCapacity(SEXP threads_sexp){
+	Rf_error("Cannot call SetIOThreadPoolCapacity(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
+}
+#endif
+
 // type_infer.cpp
 #if defined(ARROW_R_WITH_ARROW)
 std::shared_ptr<arrow::DataType> Array__infer_type(SEXP x);
@@ -7044,6 +7090,7 @@ static const R_CallMethodDef CallEntries[] = {
 		{ "_arrow_compute___expr__scalar", (DL_FUNC) &_arrow_compute___expr__scalar, 1}, 
 		{ "_arrow_compute___expr__ToString", (DL_FUNC) &_arrow_compute___expr__ToString, 1}, 
 		{ "_arrow_compute___expr__type", (DL_FUNC) &_arrow_compute___expr__type, 2}, 
+		{ "_arrow_compute___expr__type_id", (DL_FUNC) &_arrow_compute___expr__type_id, 2}, 
 		{ "_arrow_ipc___WriteFeather__Table", (DL_FUNC) &_arrow_ipc___WriteFeather__Table, 6}, 
 		{ "_arrow_ipc___feather___Reader__version", (DL_FUNC) &_arrow_ipc___feather___Reader__version, 1}, 
 		{ "_arrow_ipc___feather___Reader__Read", (DL_FUNC) &_arrow_ipc___feather___Reader__Read, 2}, 
@@ -7271,6 +7318,8 @@ static const R_CallMethodDef CallEntries[] = {
 		{ "_arrow_Table__from_dots", (DL_FUNC) &_arrow_Table__from_dots, 2}, 
 		{ "_arrow_GetCpuThreadPoolCapacity", (DL_FUNC) &_arrow_GetCpuThreadPoolCapacity, 0}, 
 		{ "_arrow_SetCpuThreadPoolCapacity", (DL_FUNC) &_arrow_SetCpuThreadPoolCapacity, 1}, 
+		{ "_arrow_GetIOThreadPoolCapacity", (DL_FUNC) &_arrow_GetIOThreadPoolCapacity, 0}, 
+		{ "_arrow_SetIOThreadPoolCapacity", (DL_FUNC) &_arrow_SetIOThreadPoolCapacity, 1}, 
 		{ "_arrow_Array__infer_type", (DL_FUNC) &_arrow_Array__infer_type, 1}, 
 		{ "_arrow_Table__Reset", (DL_FUNC) &_arrow_Table__Reset, 1}, 
 		{ "_arrow_RecordBatch__Reset", (DL_FUNC) &_arrow_RecordBatch__Reset, 1}, 
