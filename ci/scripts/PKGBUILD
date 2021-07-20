@@ -35,7 +35,7 @@ depends=("${MINGW_PACKAGE_PREFIX}-aws-sdk-cpp"
 makedepends=("${MINGW_PACKAGE_PREFIX}-ccache"
              "${MINGW_PACKAGE_PREFIX}-cmake"
              "${MINGW_PACKAGE_PREFIX}-gcc")
-options=("staticlibs" "strip" "!buildflags")
+options=("staticlibs" "!strip" "!buildflags")
 
 # For installing from a local checkout, set source_dir to . and don't include
 # a "source" param below
