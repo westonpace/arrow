@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <numeric>
 #include <string>
 #include <type_traits>
@@ -439,8 +438,8 @@ class ArrayLoader {
   bool skip_io_ = false;
 
   BatchDataReadRequest read_request_;
-  const Field* field_;
-  ArrayData* out_;
+  const Field* field_ = nullptr;
+  ArrayData* out_ = nullptr;
 };
 
 Result<std::shared_ptr<Buffer>> DecompressBuffer(const std::shared_ptr<Buffer>& buf,
@@ -579,7 +578,8 @@ Result<std::shared_ptr<RecordBatch>> LoadRecordBatch(
   if (inclusion_mask.size() > 0) {
     return LoadRecordBatchSubset(metadata, schema, &inclusion_mask, context, file);
   } else {
-    return LoadRecordBatchSubset(metadata, schema, /*param_name=*/nullptr, context, file);
+    return LoadRecordBatchSubset(metadata, schema, /*inclusion_mask=*/nullptr, context,
+                                 file);
   }
 }
 
@@ -1263,7 +1263,7 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
 
   Status DoPreBufferMetadata(const std::vector<int>& indices) {
     RETURN_NOT_OK(CacheMetadata(indices));
-    WaitForDictionaries();
+    EnsureDictionaryReadStarted();
     Future<> all_metadata_ready = WaitForMetadatas(indices);
     for (int index : indices) {
       Future<std::shared_ptr<Message>> metadata_loaded =
@@ -1292,8 +1292,6 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
   }
 
  private:
-  friend AsyncGenerator<std::shared_ptr<Message>> MakeMessageGenerator(
-      std::shared_ptr<RecordBatchFileReaderImpl>, const io::IOContext&);
   friend class IpcFileRecordBatchGenerator;
 
   FileBlock GetRecordBatchBlock(int i) const {
@@ -1356,7 +1354,7 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
     return metadata_cache_->Cache(std::move(ranges));
   }
 
-  void WaitForDictionaries() {
+  void EnsureDictionaryReadStarted() {
     if (!dictionary_load_finished_.is_valid()) {
       read_dictionaries_ = true;
       std::vector<io::ReadRange> ranges;

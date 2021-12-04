@@ -337,7 +337,7 @@ Result<std::unique_ptr<Message>> ReadMessage(std::shared_ptr<Buffer> metadata,
                              " invalid. Buffer size: ", metadata->size());
     case MessageDecoder::State::BODY: {
       if (body == nullptr) {
-        // Caller didn't give a body so just give them a message-less body
+        // Caller didn't give a body so just give them a message without body
         return std::move(result);
       }
       if (body->size() != decoder.next_required_size()) {
@@ -945,7 +945,8 @@ class MessageDecoder::MessageDecoderImpl {
 MessageDecoder::MessageDecoder(std::shared_ptr<MessageDecoderListener> listener,
                                MemoryPool* pool, bool skip_body) {
   impl_.reset(new MessageDecoderImpl(std::move(listener), State::INITIAL,
-                                     kMessageDecoderNextRequiredSizeInitial, pool, skip_body));
+                                     kMessageDecoderNextRequiredSizeInitial, pool,
+                                     skip_body));
 }
 
 MessageDecoder::MessageDecoder(std::shared_ptr<MessageDecoderListener> listener,

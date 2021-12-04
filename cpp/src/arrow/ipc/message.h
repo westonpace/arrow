@@ -269,7 +269,8 @@ class ARROW_EXPORT MessageDecoder {
   /// \param[in] skip_body if true the body will be skipped even if the message has a body
   /// CPU, if required
   explicit MessageDecoder(std::shared_ptr<MessageDecoderListener> listener,
-                          MemoryPool* pool = default_memory_pool(), bool skip_body = false);
+                          MemoryPool* pool = default_memory_pool(),
+                          bool skip_body = false);
 
   /// \brief Construct a message decoder with the specified state.
   ///
@@ -470,7 +471,12 @@ Result<std::unique_ptr<Message>> ReadMessage(
 
 /// \brief Read encapsulated RPC message from cached buffers
 ///
-/// The buffers should contain an entire message / body and partials are not handled.
+/// The buffers should contain an entire message.  Partial reads are not handled.
+///
+/// This method can be used to read just the metadata by passing in a nullptr for the
+/// body.  The body will then be skipped and the body size will not be validated.
+///
+/// If the body buffer is provided then it must be the complete body buffer
 ///
 /// This is similar to Message::Open but performs slightly more validation (e.g. checks
 /// to see that the metadata length is correct and that the body is the size the metadata
