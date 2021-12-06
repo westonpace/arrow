@@ -53,7 +53,7 @@ std::shared_ptr<RecordBatch> MakeRecordBatch(int64_t total_size, int64_t num_fie
 std::vector<int> GetIncludedFields(int64_t num_fields, int64_t is_partial_read) {
   if (is_partial_read) {
     std::vector<int> field_indices;
-    for(int i = 0; i < num_fields; i+= 8) {
+    for (int i = 0; i < num_fields; i += 8) {
       field_indices.push_back(i);
     }
     return field_indices;
@@ -226,40 +226,43 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
   ASSIGN_OR_ABORT(auto input, io::MemoryMappedFile::Open("/tmp/benchmark.arrow", \
                                                          io::FileMode::type::READ));
 
-#define READ_SYNC(NAME, GENERATE, READ)                                                 \
-  static void NAME(benchmark::State& state) {                                           \
-    GENERATE();                                                                         \
-    for (auto _ : state) {                                                              \
-      READ();                                                                           \
-      ipc::IpcReadOptions options;                                                      \
-      options.included_fields = GetIncludedFields(state.range(0), state.range(1));      \
-      auto reader = *ipc::RecordBatchFileReader::Open(input.get(), options);            \
-      const int num_batches = reader->num_record_batches();                             \
-      for (int i = 0; i < num_batches; ++i) {                                           \
-        auto batch = *reader->ReadRecordBatch(i);                                       \
-      }                                                                                 \
-    }                                                                                   \
-    state.SetBytesProcessed(int64_t(state.iterations()) * kBatchSize * kBatches);       \
-  }                                                                                     \
+#define READ_SYNC(NAME, GENERATE, READ)                                            \
+  static void NAME(benchmark::State& state) {                                      \
+    GENERATE();                                                                    \
+    for (auto _ : state) {                                                         \
+      READ();                                                                      \
+      ipc::IpcReadOptions options;                                                 \
+      options.included_fields = GetIncludedFields(state.range(0), state.range(1)); \
+      auto reader = *ipc::RecordBatchFileReader::Open(input.get(), options);       \
+      const int num_batches = reader->num_record_batches();                        \
+      for (int i = 0; i < num_batches; ++i) {                                      \
+        auto batch = *reader->ReadRecordBatch(i);                                  \
+      }                                                                            \
+    }                                                                              \
+    state.SetBytesProcessed(int64_t(state.iterations()) * kBatchSize * kBatches);  \
+  }                                                                                \
   BENCHMARK(NAME)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
 
-#define READ_ASYNC(NAME, GENERATE, READ)                                                \
-  static void NAME##Async(benchmark::State& state) {                                    \
-    GENERATE();                                                                         \
-    for (auto _ : state) {                                                              \
-      READ();                                                                           \
-      ipc::IpcReadOptions options;                                                      \
-      options.included_fields = GetIncludedFields(state.range(0), state.range(1));      \
-      auto reader = *ipc::RecordBatchFileReader::Open(input.get(), options);            \
-      ASSIGN_OR_ABORT(auto generator, reader->GetRecordBatchGenerator());               \
-      const int num_batches = reader->num_record_batches();                             \
-      for (int i = 0; i < num_batches; ++i) {                                           \
-        auto batch = *generator().result();                                             \
-      }                                                                                 \
-    }                                                                                   \
-    state.SetBytesProcessed(int64_t(state.iterations()) * kBatchSize * kBatches);       \
-  }                                                                                     \
-  BENCHMARK(NAME##Async)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
+#define READ_ASYNC(NAME, GENERATE, READ)                                           \
+  static void NAME##Async(benchmark::State& state) {                               \
+    GENERATE();                                                                    \
+    for (auto _ : state) {                                                         \
+      READ();                                                                      \
+      ipc::IpcReadOptions options;                                                 \
+      options.included_fields = GetIncludedFields(state.range(0), state.range(1)); \
+      auto reader = *ipc::RecordBatchFileReader::Open(input.get(), options);       \
+      ASSIGN_OR_ABORT(auto generator, reader->GetRecordBatchGenerator());          \
+      const int num_batches = reader->num_record_batches();                        \
+      for (int i = 0; i < num_batches; ++i) {                                      \
+        auto batch = *generator().result();                                        \
+      }                                                                            \
+    }                                                                              \
+    state.SetBytesProcessed(int64_t(state.iterations()) * kBatchSize * kBatches);  \
+  }                                                                                \
+  BENCHMARK(NAME##Async)                                                           \
+      ->RangeMultiplier(4)                                                         \
+      ->Ranges({{1, 1 << 13}, {0, 1}})                                             \
+      ->UseRealTime();
 
 #define READ_BENCHMARK(NAME, GENERATE, READ) \
   READ_SYNC(NAME, GENERATE, READ);           \
@@ -273,9 +276,18 @@ READ_BENCHMARK(ReadCompressedFile, GENERATE_COMPRESSED_DATA_IN_MEMORY,
                READ_DATA_IN_MEMORY);
 #endif
 
-BENCHMARK(WriteRecordBatch)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
-BENCHMARK(ReadRecordBatch)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
+BENCHMARK(WriteRecordBatch)
+    ->RangeMultiplier(4)
+    ->Ranges({{1, 1 << 13}, {0, 1}})
+    ->UseRealTime();
+BENCHMARK(ReadRecordBatch)
+    ->RangeMultiplier(4)
+    ->Ranges({{1, 1 << 13}, {0, 1}})
+    ->UseRealTime();
 BENCHMARK(ReadStream)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
-BENCHMARK(DecodeStream)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
+BENCHMARK(DecodeStream)
+    ->RangeMultiplier(4)
+    ->Ranges({{1, 1 << 13}, {0, 1}})
+    ->UseRealTime();
 
 }  // namespace arrow

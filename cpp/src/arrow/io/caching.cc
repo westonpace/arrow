@@ -290,7 +290,8 @@ struct ReadRangeCache::LazyImpl : public ReadRangeCache::Impl {
   }
 };
 
-ReadRangeCache::ReadRangeCache(std::shared_ptr<RandomAccessFile> owned_file, RandomAccessFile* file, IOContext ctx,
+ReadRangeCache::ReadRangeCache(std::shared_ptr<RandomAccessFile> owned_file,
+                               RandomAccessFile* file, IOContext ctx,
                                CacheOptions options)
     : impl_(options.lazy ? new LazyImpl() : new Impl()) {
   impl_->owned_file = std::move(owned_file);
