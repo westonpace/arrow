@@ -1412,7 +1412,7 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
                                  const flatbuf::RecordBatch* batch,
                                  IpcReadContext context, io::RandomAccessFile* file,
                                  std::shared_ptr<io::RandomAccessFile> owned_file,
-                                 int block_data_offset)
+                                 int64_t block_data_offset)
         : schema(std::move(sch)),
           context(std::move(context)),
           file(file),
@@ -1522,7 +1522,7 @@ class RecordBatchFileReaderImpl : public RecordBatchFileReader {
 
           auto read_context = std::make_shared<CachedRecordBatchReadContext>(
               schema_, batch, std::move(context), file_, owned_file_,
-              block.offset + block.metadata_length);
+              block.offset + static_cast<int64_t>(block.metadata_length));
           RETURN_NOT_OK(read_context->CalculateLoadRequest());
           return read_context->ReadAsync().Then(
               [read_context] { return read_context->CreateRecordBatch(); });
