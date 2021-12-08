@@ -24,11 +24,13 @@
 #include "arrow/buffer.h"
 #include "arrow/io/file.h"
 #include "arrow/io/memory.h"
+#include "arrow/io/test_common.h"
 #include "arrow/ipc/api.h"
 #include "arrow/record_batch.h"
 #include "arrow/testing/gtest_util.h"
 #include "arrow/testing/random.h"
 #include "arrow/type.h"
+#include "arrow/util/io_util.h"
 
 namespace arrow {
 
@@ -62,9 +64,17 @@ std::vector<int> GetIncludedFields(int64_t num_fields, int64_t is_partial_read) 
   }
 }
 
+int64_t BytesPerIteration(int64_t num_fields, int64_t is_partial_read, int64_t batch_size, int64_t num_batches) {
+  std::size_t num_actual_fields = GetIncludedFields(num_fields, is_partial_read).size();
+  double selectivity = num_actual_fields / static_cast<double>(num_fields);
+  if (num_actual_fields == 0) selectivity = 1;
+  auto bytes = batch_size * num_batches * selectivity;
+  return static_cast<int64_t>(bytes);
+}
+
 static void WriteRecordBatch(benchmark::State& state) {  // NOLINT non-const reference
   // 1MB
-  constexpr int64_t kTotalSize = 1 << 20;
+  constexpr int64_t kTotalSize = 1 << 23;
   auto options = ipc::IpcWriteOptions::Defaults();
 
   std::shared_ptr<ResizableBuffer> buffer = *AllocateResizableBuffer(1024);
@@ -82,7 +92,7 @@ static void WriteRecordBatch(benchmark::State& state) {  // NOLINT non-const ref
 
 static void ReadRecordBatch(benchmark::State& state) {  // NOLINT non-const reference
   // 1MB
-  constexpr int64_t kTotalSize = 1 << 20;
+  constexpr int64_t kTotalSize = 1 << 23;
   auto options = ipc::IpcWriteOptions::Defaults();
 
   std::shared_ptr<ResizableBuffer> buffer = *AllocateResizableBuffer(1024);
@@ -106,7 +116,7 @@ static void ReadRecordBatch(benchmark::State& state) {  // NOLINT non-const refe
 
 static void ReadStream(benchmark::State& state) {  // NOLINT non-const reference
   // 1MB
-  constexpr int64_t kTotalSize = 1 << 20;
+  constexpr int64_t kTotalSize = 1 << 23;
   auto options = ipc::IpcWriteOptions::Defaults();
 
   std::shared_ptr<ResizableBuffer> buffer = *AllocateResizableBuffer(1024);
@@ -144,7 +154,7 @@ static void ReadStream(benchmark::State& state) {  // NOLINT non-const reference
 
 static void DecodeStream(benchmark::State& state) {  // NOLINT non-const reference
   // 1MB
-  constexpr int64_t kTotalSize = 1 << 20;
+  constexpr int64_t kTotalSize = 1 << 23;
   auto options = ipc::IpcWriteOptions::Defaults();
 
   std::shared_ptr<ResizableBuffer> buffer = *AllocateResizableBuffer(1024);
@@ -174,7 +184,7 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
 
 #ifdef ARROW_WITH_ZSTD
 #define GENERATE_COMPRESSED_DATA_IN_MEMORY()                                      \
-  constexpr int64_t kBatchSize = 1 << 20; /* 1 MB */                              \
+  constexpr int64_t kBatchSize = 1 << 23; /* 1 MB */                              \
   constexpr int64_t kBatches = 16;                                                \
   auto options = ipc::IpcWriteOptions::Defaults();                                \
   ASSIGN_OR_ABORT(options.codec,                                                  \
@@ -193,7 +203,7 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
 #endif
 
 #define GENERATE_DATA_IN_MEMORY()                                                 \
-  constexpr int64_t kBatchSize = 1 << 20; /* 1 MB */                              \
+  constexpr int64_t kBatchSize = 1 << 23; /* 1 MB */                              \
   constexpr int64_t kBatches = 1;                                                 \
   auto options = ipc::IpcWriteOptions::Defaults();                                \
   std::shared_ptr<ResizableBuffer> buffer = *AllocateResizableBuffer(1024);       \
@@ -207,21 +217,44 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
   }
 
 #define GENERATE_DATA_TEMP_FILE()                                                 \
-  constexpr int64_t kBatchSize = 1 << 20; /* 1 MB */                              \
+  constexpr int64_t kBatchSize = 1 << 23; /* 1 MB */                              \
   constexpr int64_t kBatches = 16;                                                \
   auto options = ipc::IpcWriteOptions::Defaults();                                \
   ASSIGN_OR_ABORT(auto sink, io::FileOutputStream::Open("/tmp/benchmark.arrow")); \
   {                                                                               \
     auto record_batch = MakeRecordBatch(kBatchSize, state.range(0));              \
     auto writer = *ipc::MakeFileWriter(sink, record_batch->schema(), options);    \
-    ABORT_NOT_OK(writer->WriteRecordBatch(*record_batch));                        \
+    for (int64_t i = 0; i < kBatches; i++) {                                      \
+      ABORT_NOT_OK(writer->WriteRecordBatch(*record_batch));                      \
+    }                                                                             \
     ABORT_NOT_OK(writer->Close());                                                \
     ABORT_NOT_OK(sink->Close());                                                  \
+  }
+
+// FIXME: Find better place to put a real file, /tmp won't work as it is usually
+// a tmpfs mount
+#define GENERATE_DATA_REAL_FILE()                                                 \
+  constexpr int64_t kBatchSize = 1 << 23; /* 1 MB */                              \
+  constexpr int64_t kBatches = 16;                                                \
+  auto options = ipc::IpcWriteOptions::Defaults();                                \
+  ASSIGN_OR_ABORT(auto sink, io::FileOutputStream::Open("benchmark.arrow")); \
+  {                                                                               \
+    auto record_batch = MakeRecordBatch(kBatchSize, state.range(0));              \
+    auto writer = *ipc::MakeFileWriter(sink, record_batch->schema(), options);    \
+    for (int64_t i = 0; i < kBatches; i++) {                                      \
+      ABORT_NOT_OK(writer->WriteRecordBatch(*record_batch));                      \
+    }                                                                             \
+    ABORT_NOT_OK(writer->Close());                                                \
+    ABORT_NOT_OK(sink->Close());                                                  \
+    ABORT_NOT_OK(io::PurgeLocalFileFromOsCache("benchmark.arrow"));               \
   }
 
 #define READ_DATA_IN_MEMORY() auto input = std::make_shared<io::BufferReader>(buffer);
 #define READ_DATA_TEMP_FILE() \
   ASSIGN_OR_ABORT(auto input, io::ReadableFile::Open("/tmp/benchmark.arrow"));
+#define READ_DATA_REAL_FILE()                                             \
+  ASSIGN_OR_ABORT(auto input, io::ReadableFile::Open("benchmark.arrow")); \
+  ABORT_NOT_OK(io::PurgeLocalFileFromOsCache("benchmark.arrow"));
 #define READ_DATA_MMAP_FILE()                                                    \
   ASSIGN_OR_ABORT(auto input, io::MemoryMappedFile::Open("/tmp/benchmark.arrow", \
                                                          io::FileMode::type::READ));
@@ -239,7 +272,9 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
         auto batch = *reader->ReadRecordBatch(i);                                  \
       }                                                                            \
     }                                                                              \
-    state.SetBytesProcessed(int64_t(state.iterations()) * kBatchSize * kBatches);  \
+    int64_t bytes_per_iter = BytesPerIteration(state.range(0), state.range(1),     \
+                                               kBatchSize, kBatches);              \
+    state.SetBytesProcessed(int64_t(state.iterations()) * bytes_per_iter);         \
   }                                                                                \
   BENCHMARK(NAME)->RangeMultiplier(4)->Ranges({{1, 1 << 13}, {0, 1}})->UseRealTime();
 
@@ -257,7 +292,9 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
         auto batch = *generator().result();                                        \
       }                                                                            \
     }                                                                              \
-    state.SetBytesProcessed(int64_t(state.iterations()) * kBatchSize * kBatches);  \
+    int64_t bytes_per_iter = BytesPerIteration(state.range(0), state.range(1),     \
+                                               kBatchSize, kBatches);              \
+    state.SetBytesProcessed(int64_t(state.iterations()) * bytes_per_iter);         \
   }                                                                                \
   BENCHMARK(NAME##Async)                                                           \
       ->RangeMultiplier(4)                                                         \
@@ -270,6 +307,7 @@ static void DecodeStream(benchmark::State& state) {  // NOLINT non-const referen
 
 READ_BENCHMARK(ReadFile, GENERATE_DATA_IN_MEMORY, READ_DATA_IN_MEMORY);
 READ_BENCHMARK(ReadTempFile, GENERATE_DATA_TEMP_FILE, READ_DATA_TEMP_FILE);
+READ_BENCHMARK(ReadRealFile, GENERATE_DATA_REAL_FILE, READ_DATA_REAL_FILE);
 READ_BENCHMARK(ReadMmapFile, GENERATE_DATA_TEMP_FILE, READ_DATA_MMAP_FILE);
 #ifdef ARROW_WITH_ZSTD
 READ_BENCHMARK(ReadCompressedFile, GENERATE_COMPRESSED_DATA_IN_MEMORY,
