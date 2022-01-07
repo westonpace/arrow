@@ -92,6 +92,7 @@
 #include "arrow/util/optional.h"
 #include "arrow/util/task_group.h"
 #include "arrow/util/thread_pool.h"
+#include "arrow/util/tracing_internal.h"
 
 namespace arrow {
 
@@ -1065,7 +1066,10 @@ class ObjectInputFile final : public io::RandomAccessFile {
   Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override {
     RETURN_NOT_OK(CheckClosed());
     RETURN_NOT_OK(CheckPosition(position, "read"));
-
+    auto tracer = arrow::internal::tracing::GetTracer();
+    auto span = tracer->StartSpan(
+        "arrow::fs::ObjectInputFile::ReadAt",
+        {{"path", path_.key}, {"position", position}, {"nbytes", nbytes}});
     nbytes = std::min(nbytes, content_length_ - position);
     if (nbytes == 0) {
       return 0;
@@ -1077,6 +1081,8 @@ class ObjectInputFile final : public io::RandomAccessFile {
 
     auto& stream = result.GetBody();
     stream.ignore(nbytes);
+    span->SetStatus(opentelemetry::trace::StatusCode::kOk);
+    span->End();
     // NOTE: the stream is a stringstream by default, there is no actual error
     // to check for.  However, stream.fail() may return true if EOF is reached.
     return stream.gcount();
