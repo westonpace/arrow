@@ -327,13 +327,27 @@ class DatasetWriterDirectoryQueue : public util::AsyncDestroyable {
   uint64_t rows_written() const { return rows_written_; }
 
   void PrepareDirectory() {
-    init_future_ = DeferNotOk(write_options_.filesystem->io_context().executor()->Submit(
-        [this]() { return write_options_.filesystem->CreateDir(directory_); }));
+    Future<bool> create_if_needed =
+        DeferNotOk(write_options_.filesystem->io_context().executor()->Submit(
+            [this]() -> Result<bool> {
+              ARROW_ASSIGN_OR_RAISE(fs::FileInfo file_info,
+                                    write_options_.filesystem->GetFileInfo(directory_));
+              if (file_info.type() == fs::FileType::NotFound) {
+                ARROW_RETURN_NOT_OK(write_options_.filesystem->CreateDir(directory_));
+                return false;
+              }
+              return true;
+            }));
     if (write_options_.existing_data_behavior ==
         ExistingDataBehavior::kDeleteMatchingPartitions) {
-      init_future_ = init_future_.Then([this]() {
-        return write_options_.filesystem->DeleteDirContentsAsync(directory_);
+      init_future_ = create_if_needed.Then([this](bool dir_existed) -> Future<> {
+        if (dir_existed) {
+          return write_options_.filesystem->DeleteDirContentsAsync(directory_);
+        }
+        return Status::OK();
       });
+    } else {
+      init_future_ = create_if_needed.Then([](bool) { return Status::OK(); });
     }
   }
 
