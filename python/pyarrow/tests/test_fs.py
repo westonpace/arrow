@@ -827,8 +827,6 @@ def test_delete_dir(fs, pathfn):
 
 
 def test_delete_dir_contents(fs, pathfn):
-    skip_fsspec_s3fs(fs)
-
     d = pathfn('directory/')
     nd = pathfn('directory/nested/')
 
@@ -836,9 +834,14 @@ def test_delete_dir_contents(fs, pathfn):
     fs.delete_dir_contents(d)
     with pytest.raises(pa.ArrowIOError):
         fs.delete_dir(nd)
-    fs.delete_dir(d)
-    with pytest.raises(pa.ArrowIOError):
+
+    if 'fsspec' in fs.type_name:
+        fs.delete_dir_contents('does_not_exist')
+
+    if fs.type_name != 'py::fsspec+s3':
         fs.delete_dir(d)
+        with pytest.raises(pa.ArrowIOError):
+            fs.delete_dir(d)
 
 
 def _check_root_dir_contents(config):

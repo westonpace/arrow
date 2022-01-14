@@ -347,7 +347,12 @@ class FSSpecHandler(FileSystemHandler):
         self.fs.rm(path, recursive=True)
 
     def _delete_dir_contents(self, path):
-        for subpath in self.fs.listdir(path, detail=False):
+        try:
+            subpaths = self.fs.listdir(path, detail=False)
+        except FileNotFoundError:
+            return
+
+        for subpath in subpaths:
             if self.fs.isdir(subpath):
                 self.fs.rm(subpath, recursive=True)
             elif self.fs.isfile(subpath):
