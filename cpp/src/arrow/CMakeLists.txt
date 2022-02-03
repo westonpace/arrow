@@ -393,9 +393,11 @@ if(ARROW_COMPUTE)
        compute/exec/key_map.cc
        compute/exec/options.cc
        compute/exec/order_by_impl.cc
+       compute/exec/partition_util.cc
        compute/exec/project_node.cc
        compute/exec/sink_node.cc
        compute/exec/source_node.cc
+       compute/exec/swiss_join.cc
        compute/exec/task_util.cc
        compute/exec/union_node.cc
        compute/exec/util.cc
@@ -445,6 +447,7 @@ if(ARROW_COMPUTE)
   append_avx2_src(compute/exec/key_encode_avx2.cc)
   append_avx2_src(compute/exec/key_hash_avx2.cc)
   append_avx2_src(compute/exec/key_map_avx2.cc)
+  append_avx2_src(compute/exec/swiss_join_avx2.cc)
   append_avx2_src(compute/exec/util_avx2.cc)
 
   list(APPEND ARROW_TESTING_SRCS compute/exec/test_util.cc)
