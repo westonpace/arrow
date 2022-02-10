@@ -108,6 +108,8 @@ add_arrow_lib(arrow_engine
               ${ARROW_ENGINE_SRCS}
               PRECOMPILED_HEADERS
               "$<$<COMPILE_LANGUAGE:CXX>:arrow/engine/pch.h>"
+              DEPENDENCIES
+              substrait_gen
               SHARED_LINK_FLAGS
               ${ARROW_VERSION_SCRIPT_FLAGS} # Defined in cpp/arrow/CMakeLists.txt
               SHARED_LINK_LIBS
