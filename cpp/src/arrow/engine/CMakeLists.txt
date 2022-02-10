@@ -21,9 +21,9 @@ arrow_install_all_headers("arrow/engine")
 
 set(ARROW_ENGINE_LINK_LIBS ${ARROW_PROTOBUF_LIBPROTOBUF})
 
-#if(WIN32)
-#  list(APPEND ARROW_ENGINE_LINK_LIBS ws2_32.lib)
-#endif()
+if(WIN32)
+ list(APPEND ARROW_ENGINE_LINK_LIBS ws2_32.lib)
+endif()
 
 set(ARROW_ENGINE_SRCS
     substrait/expression_internal.cc
