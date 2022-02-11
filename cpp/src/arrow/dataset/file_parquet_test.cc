@@ -387,6 +387,9 @@ TEST_P(TestParquetFileFormatScan, ScanRecordBatchReaderProjectedMissingCols) {
 TEST_P(TestParquetFileFormatScan, ScanRecordBatchReaderWithVirtualColumn) {
   TestScanWithVirtualColumn();
 }
+TEST_P(TestParquetFileFormatScan, ScanRecordBatchReaderWithFieldPathFilter) {
+  TestScanWithFieldPathFilter();
+}
 TEST_P(TestParquetFileFormatScan, ScanRecordBatchReaderWithDuplicateColumn) {
   TestScanWithDuplicateColumn();
 }
