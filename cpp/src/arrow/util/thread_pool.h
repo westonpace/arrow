@@ -36,6 +36,7 @@
 #include "arrow/util/cancel.h"
 #include "arrow/util/functional.h"
 #include "arrow/util/future.h"
+#include "arrow/util/iterator.h"
 #include "arrow/util/macros.h"
 #include "arrow/util/visibility.h"
 
@@ -276,6 +277,14 @@ class ARROW_EXPORT SerialExecutor : public Executor {
     return FutureToSync(fut);
   }
 
+  template <typename T>
+  static Iterator<T> RunGeneratorInSerialExecutor(
+      internal::FnOnce<std::function<Future<T>()>(Executor*)> initial_task) {
+    auto serial_executor = std::unique_ptr<SerialExecutor>(new SerialExecutor());
+    return serial_executor->RunGenerator(std::move(initial_task),
+                                         std::move(serial_executor));
+  }
+
  private:
   SerialExecutor();
 
@@ -283,18 +292,60 @@ class ARROW_EXPORT SerialExecutor : public Executor {
   struct State;
   std::shared_ptr<State> state_;
 
+  void RunLoop();
+  void Finish();
+  void Pause();
+  void Unpause();
+
   template <typename T, typename FTSync = typename Future<T>::SyncType>
   Future<T> Run(TopLevelTask<T> initial_task) {
     auto final_fut = std::move(initial_task)(this);
     if (final_fut.is_finished()) {
       return final_fut;
     }
-    final_fut.AddCallback([this](const FTSync&) { MarkFinished(); });
+    final_fut.AddCallback([this](const FTSync&) { Finish(); });
     RunLoop();
     return final_fut;
   }
-  void RunLoop();
-  void MarkFinished();
+
+  template <typename T>
+  Iterator<T> RunGenerator(
+      internal::FnOnce<std::function<Future<T>()>(Executor*)> initial_task,
+      std::unique_ptr<SerialExecutor> self) {
+    auto generator = std::move(initial_task)(this);
+    struct {
+      Result<T> Next() {
+        executor->Unpause();
+        // This call will probably lead to a bunch of tasks being
+        // scheduled in the serial executor
+        Future<T> next_fut = generator();
+        next_fut.AddCallback([this](const Result<T>& res) {
+          // If we're done iterating we should drain the rest of the tasks in the executor
+          if (!res.ok() || IsIterationEnd(*res)) {
+            executor->Finish();
+            return;
+          }
+          // Otherwise we will break out immediately, leaving the remaining tasks for
+          // the next call.
+          executor->Pause();
+        });
+        // Borrow this thread and run tasks until the future is finished
+        executor->RunLoop();
+        if (!next_fut.is_finished()) {
+          // Not clear this is possible
+          return Status::Invalid(
+              "Serial executor terminated before next result computed");
+        }
+        // At this point we may still have tasks in the executor, that is ok.
+        // We will run those tasks the next time through.
+        return next_fut.result();
+      }
+
+      std::unique_ptr<SerialExecutor> executor;
+      std::function<Future<T>()> generator;
+    } iter{std::move(self), std::move(generator)};
+    return Iterator<T>(std::move(iter));
+  }
 };
 
 /// An Executor implementation spawning tasks in FIFO manner on a fixed-size

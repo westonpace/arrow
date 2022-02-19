@@ -32,6 +32,7 @@
 #include <gtest/gtest.h>
 
 #include "arrow/status.h"
+#include "arrow/testing/async_test_util.h"
 #include "arrow/testing/executor_util.h"
 #include "arrow/testing/future_util.h"
 #include "arrow/testing/gtest_util.h"
@@ -259,6 +260,61 @@ TEST_P(TestRunSynchronously, PropagatedError) {
 
 INSTANTIATE_TEST_SUITE_P(TestRunSynchronously, TestRunSynchronously,
                          ::testing::Values(false, true));
+
+TEST(SerialExecutor, AsyncGenerator) {
+  std::vector<TestInt> values{1, 2, 3, 4, 5};
+  auto source = util::SlowdownABit(util::AsyncVectorIt(values));
+  Iterator<TestInt> iter = SerialExecutor::RunGeneratorInSerialExecutor<TestInt>(
+      [&source](Executor* executor) {
+        return MakeMappedGenerator(source, [executor](const TestInt& ti) {
+          return DeferNotOk(executor->Submit([ti] { return ti; }));
+        });
+      });
+  ASSERT_OK_AND_ASSIGN(auto vec, iter.ToVector());
+  ASSERT_EQ(vec, values);
+}
+
+TEST(SerialExecutor, AsyncGeneratorWithFollowUp) {
+  // Sometimes a task will generate follow-up tasks.  These must be run
+  // before the next task is started
+  bool follow_up_ran = false;
+  bool first = true;
+  Iterator<TestInt> iter =
+      SerialExecutor::RunGeneratorInSerialExecutor<TestInt>([&](Executor* executor) {
+        return [=, &first, &follow_up_ran]() -> Future<TestInt> {
+          if (first) {
+            first = false;
+            Future<TestInt> end = DeferNotOk(executor->Submit([] { return TestInt(0); }));
+            RETURN_NOT_OK(executor->Spawn([&] { follow_up_ran = true; }));
+            return end;
+          }
+          return DeferNotOk(executor->Submit([] { return IterationEnd<TestInt>(); }));
+        };
+      });
+  ASSERT_FALSE(follow_up_ran);
+  ASSERT_OK_AND_EQ(TestInt(0), iter.Next());
+  ASSERT_FALSE(follow_up_ran);
+  ASSERT_OK_AND_EQ(IterationEnd<TestInt>(), iter.Next());
+  ASSERT_TRUE(follow_up_ran);
+}
+
+TEST(SerialExecutor, AsyncGeneratorWithCleanup) {
+  // Sometimes a final task might generate follow-up tasks.  Unlike other follow-up
+  // tasks these must run before we finish the iterator.
+  bool follow_up_ran = false;
+  Iterator<TestInt> iter =
+      SerialExecutor::RunGeneratorInSerialExecutor<TestInt>([&](Executor* executor) {
+        return [=, &follow_up_ran]() -> Future<TestInt> {
+          Future<TestInt> end =
+              DeferNotOk(executor->Submit([] { return IterationEnd<TestInt>(); }));
+          RETURN_NOT_OK(executor->Spawn([&] { follow_up_ran = true; }));
+          return end;
+        };
+      });
+  ASSERT_FALSE(follow_up_ran);
+  ASSERT_OK_AND_EQ(IterationEnd<TestInt>(), iter.Next());
+  ASSERT_TRUE(follow_up_ran);
+}
 
 class TransferTest : public testing::Test {
  public:
