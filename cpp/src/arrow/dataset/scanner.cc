@@ -194,8 +194,7 @@ class AsyncScanner : public Scanner, public std::enable_shared_from_this<AsyncSc
   Result<TaggedRecordBatchGenerator> ScanBatchesAsync(Executor* executor);
   Future<> VisitBatchesAsync(std::function<Status(TaggedRecordBatch)> visitor,
                              Executor* executor);
-  Result<EnumeratedRecordBatchGenerator> ScanBatchesUnorderedAsync(
-      Executor* executor, bool sequence_fragments = false);
+  Result<EnumeratedRecordBatchGenerator> ScanBatchesUnorderedAsync(Executor* executor);
   Future<std::shared_ptr<Table>> ToTableAsync(Executor* executor);
 
   Result<FragmentGenerator> GetFragments() const;
@@ -205,8 +204,10 @@ class AsyncScanner : public Scanner, public std::enable_shared_from_this<AsyncSc
 
 Result<EnumeratedRecordBatchGenerator> FragmentToBatches(
     const Enumerated<std::shared_ptr<Fragment>>& fragment,
-    const std::shared_ptr<ScanOptions>& options) {
-  ARROW_ASSIGN_OR_RAISE(auto batch_gen, fragment.value->ScanBatchesAsync(options));
+    const std::shared_ptr<ScanOptions>& options,
+    ::arrow::internal::Executor* cpu_executor) {
+  ARROW_ASSIGN_OR_RAISE(auto batch_gen,
+                        fragment.value->ScanBatchesAsync(options, cpu_executor));
   ArrayVector columns;
   for (const auto& field : options->dataset_schema->fields()) {
     // TODO(ARROW-7051): use helper to make empty batch
@@ -228,11 +229,12 @@ Result<EnumeratedRecordBatchGenerator> FragmentToBatches(
 }
 
 Result<AsyncGenerator<EnumeratedRecordBatchGenerator>> FragmentsToBatches(
-    FragmentGenerator fragment_gen, const std::shared_ptr<ScanOptions>& options) {
+    FragmentGenerator fragment_gen, const std::shared_ptr<ScanOptions>& options,
+    ::arrow::internal::Executor* cpu_executor) {
   auto enumerated_fragment_gen = MakeEnumeratedGenerator(std::move(fragment_gen));
   return MakeMappedGenerator(std::move(enumerated_fragment_gen),
                              [=](const Enumerated<std::shared_ptr<Fragment>>& fragment) {
-                               return FragmentToBatches(fragment, options);
+                               return FragmentToBatches(fragment, options, cpu_executor);
                              });
 }
 
@@ -248,13 +250,13 @@ class OneShotFragment : public Fragment {
     return Status::OK();
   }
   Result<RecordBatchGenerator> ScanBatchesAsync(
-      const std::shared_ptr<ScanOptions>& options) override {
+      const std::shared_ptr<ScanOptions>& options,
+      ::arrow::internal::Executor* cpu_executor) override {
     RETURN_NOT_OK(CheckConsumed());
     ARROW_ASSIGN_OR_RAISE(
         auto background_gen,
         MakeBackgroundGenerator(std::move(batch_it_), options->io_context.executor()));
-    return MakeTransferredGenerator(std::move(background_gen),
-                                    ::arrow::internal::GetCpuThreadPool());
+    return MakeTransferredGenerator(std::move(background_gen), cpu_executor);
   }
   std::string type_name() const override { return "one-shot"; }
 
@@ -314,7 +316,7 @@ Result<EnumeratedRecordBatch> ToEnumeratedRecordBatch(
 }
 
 Result<EnumeratedRecordBatchGenerator> AsyncScanner::ScanBatchesUnorderedAsync(
-    Executor* cpu_executor, bool sequence_fragments) {
+    Executor* cpu_executor) {
   if (!scan_options_->use_threads) {
     cpu_executor = nullptr;
   }
@@ -337,8 +339,7 @@ Result<EnumeratedRecordBatchGenerator> AsyncScanner::ScanBatchesUnorderedAsync(
   RETURN_NOT_OK(
       compute::Declaration::Sequence(
           {
-              {"scan", ScanNodeOptions{dataset_, scan_options_, backpressure.toggle,
-                                       sequence_fragments}},
+              {"scan", ScanNodeOptions{dataset_, scan_options_, backpressure.toggle}},
               {"filter", compute::FilterNodeOptions{scan_options_->filter}},
               {"augmented_project",
                compute::ProjectNodeOptions{std::move(exprs), std::move(names)}},
@@ -484,8 +485,7 @@ Result<TaggedRecordBatchGenerator> AsyncScanner::ScanBatchesAsync() {
 
 Result<TaggedRecordBatchGenerator> AsyncScanner::ScanBatchesAsync(
     Executor* cpu_executor) {
-  ARROW_ASSIGN_OR_RAISE(auto unordered, ScanBatchesUnorderedAsync(
-                                            cpu_executor, /*sequence_fragments=*/true));
+  ARROW_ASSIGN_OR_RAISE(auto unordered, ScanBatchesUnorderedAsync(cpu_executor));
   // We need an initial value sentinel, so we use one with fragment.index < 0
   auto is_before_any = [](const EnumeratedRecordBatch& batch) {
     return batch.fragment.index < 0;
@@ -831,7 +831,6 @@ Result<compute::ExecNode*> MakeScanNode(compute::ExecPlan* plan,
   auto scan_options = scan_node_options.scan_options;
   auto dataset = scan_node_options.dataset;
   const auto& backpressure_toggle = scan_node_options.backpressure_toggle;
-  bool require_sequenced_output = scan_node_options.require_sequenced_output;
 
   RETURN_NOT_OK(NormalizeScanOptions(scan_options, dataset->schema()));
 
@@ -841,17 +840,12 @@ Result<compute::ExecNode*> MakeScanNode(compute::ExecPlan* plan,
   auto fragment_gen = MakeVectorGenerator(std::move(fragments_vec));
 
   ARROW_ASSIGN_OR_RAISE(auto batch_gen_gen,
-                        FragmentsToBatches(std::move(fragment_gen), scan_options));
+                        FragmentsToBatches(std::move(fragment_gen), scan_options,
+                                           plan->exec_context()->executor()));
 
   AsyncGenerator<EnumeratedRecordBatch> merged_batch_gen;
-  if (require_sequenced_output) {
-    ARROW_ASSIGN_OR_RAISE(merged_batch_gen,
-                          MakeSequencedMergedGenerator(std::move(batch_gen_gen),
-                                                       scan_options->fragment_readahead));
-  } else {
-    merged_batch_gen =
-        MakeMergedGenerator(std::move(batch_gen_gen), scan_options->fragment_readahead);
-  }
+  merged_batch_gen =
+      MakeMergedGenerator(std::move(batch_gen_gen), scan_options->fragment_readahead);
 
   auto batch_gen = MakeReadaheadGenerator(std::move(merged_batch_gen),
                                           scan_options->fragment_readahead);

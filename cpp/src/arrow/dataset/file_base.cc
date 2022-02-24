@@ -118,9 +118,10 @@ Result<std::shared_ptr<Schema>> FileFragment::ReadPhysicalSchemaImpl() {
 }
 
 Result<RecordBatchGenerator> FileFragment::ScanBatchesAsync(
-    const std::shared_ptr<ScanOptions>& options) {
+    const std::shared_ptr<ScanOptions>& options,
+    ::arrow::internal::Executor* cpu_executor) {
   auto self = std::dynamic_pointer_cast<FileFragment>(shared_from_this());
-  return format_->ScanBatchesAsync(options, self);
+  return format_->ScanBatchesAsync(options, self, cpu_executor);
 }
 
 Future<util::optional<int64_t>> FileFragment::CountRows(

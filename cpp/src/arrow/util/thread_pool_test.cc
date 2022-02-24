@@ -298,6 +298,40 @@ TEST(SerialExecutor, AsyncGeneratorWithFollowUp) {
   ASSERT_TRUE(follow_up_ran);
 }
 
+TEST(SerialExecutor, AsyncGeneratorWithAsyncFollowUp) {
+  // Simulates a situation where a user calls into the async generator, tasks (e.g. I/O
+  // readahead tasks) are spawned onto the I/O threadpool, the user gets a result, and
+  // then the I/O readahead tasks are completed while there is no calling thread in the
+  // async generator to hand the task off to (it should be queued up)
+  bool follow_up_ran = false;
+  bool first = true;
+  Executor* captured_executor;
+  Iterator<TestInt> iter =
+      SerialExecutor::RunGeneratorInSerialExecutor<TestInt>([&](Executor* executor) {
+        return [=, &first, &captured_executor]() -> Future<TestInt> {
+          if (first) {
+            captured_executor = executor;
+            first = false;
+            return DeferNotOk(executor->Submit([] {
+              // I/O tasks would be scheduled at this point
+              return TestInt(0);
+            }));
+          }
+          return DeferNotOk(executor->Submit([] { return IterationEnd<TestInt>(); }));
+        };
+      });
+  ASSERT_FALSE(follow_up_ran);
+  ASSERT_OK_AND_EQ(TestInt(0), iter.Next());
+  // I/O task completes and has reference to executor to submit continuation
+  ASSERT_OK(captured_executor->Spawn([&] { follow_up_ran = true; }));
+  // Follow-up task can't run right now because there is no thread in the executor
+  SleepABit();
+  ASSERT_FALSE(follow_up_ran);
+  // Follow-up should run as part of retrieving the next item
+  ASSERT_OK_AND_EQ(IterationEnd<TestInt>(), iter.Next());
+  ASSERT_TRUE(follow_up_ran);
+}
+
 TEST(SerialExecutor, AsyncGeneratorWithCleanup) {
   // Sometimes a final task might generate follow-up tasks.  Unlike other follow-up
   // tasks these must run before we finish the iterator.
