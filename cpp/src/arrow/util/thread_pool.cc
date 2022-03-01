@@ -33,8 +33,6 @@
 namespace arrow {
 namespace internal {
 
-Executor::~Executor() = default;
-
 namespace {
 
 struct Task {
@@ -55,7 +53,22 @@ struct SerialExecutor::State {
 
 SerialExecutor::SerialExecutor() : state_(std::make_shared<State>()) {}
 
-SerialExecutor::~SerialExecutor() = default;
+SerialExecutor::~SerialExecutor() {
+  auto state = state_;
+  std::unique_lock<std::mutex> lk(state->mutex);
+  if (!state->task_queue.empty()) {
+    // We may have remaining tasks if the executor is being abandoned.  In general
+    // we could have resource leakage in this case.  However, we can make a best effort
+    // and clean up running work.
+    state->paused = false;
+    lk.unlock();
+    RunLoop();
+    lk.lock();
+  }
+  // Just in case some I/O thread comes in and tries to schedule somethign as we are
+  // tearing down.
+  state_->finished = true;
+}
 
 Status SerialExecutor::SpawnReal(TaskHints hints, FnOnce<void()> task,
                                  StopToken stop_token, StopCallback&& stop_callback) {
@@ -69,6 +82,11 @@ Status SerialExecutor::SpawnReal(TaskHints hints, FnOnce<void()> task,
   auto state = state_;
   {
     std::lock_guard<std::mutex> lk(state->mutex);
+    if (state_->finished) {
+      return Status::Invalid(
+          "Attempt to scheduled a task on a serial executor that has already finished or "
+          "been abandoned");
+    }
     state->task_queue.push_back(
         Task{std::move(task), std::move(stop_token), std::move(stop_callback)});
   }
@@ -95,6 +113,11 @@ void SerialExecutor::Finish() {
   state->wait_for_tasks.notify_one();
 }
 
+bool SerialExecutor::IsFinished() {
+  std::lock_guard<std::mutex> lk(state_->mutex);
+  return state_->finished;
+}
+
 void SerialExecutor::Unpause() {
   auto state = state_;
   {
@@ -108,7 +131,7 @@ void SerialExecutor::RunLoop() {
   // state is guaranteed to be kept alive.
   std::unique_lock<std::mutex> lk(state_->mutex);
 
-  while (!state_->paused && !state_->finished) {
+  while (!state_->paused && !(state_->finished && state_->task_queue.empty())) {
     // The inner loop is to check if we need to sleep (e.g. while waiting on some
     // async task to finish from another thread pool).  We still need to check paused
     // because sometimes we will pause even with work leftover when processing

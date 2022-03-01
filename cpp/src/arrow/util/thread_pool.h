@@ -83,7 +83,7 @@ class ARROW_EXPORT Executor {
  public:
   using StopCallback = internal::FnOnce<void(const Status&)>;
 
-  virtual ~Executor();
+  virtual ~Executor() = default;
 
   // Spawn a fire-and-forget task.
   template <typename Function>
@@ -279,7 +279,7 @@ class ARROW_EXPORT SerialExecutor : public Executor {
 
   template <typename T>
   static Iterator<T> RunGeneratorInSerialExecutor(
-      internal::FnOnce<std::function<Future<T>()>(Executor*)> initial_task) {
+      internal::FnOnce<Result<std::function<Future<T>()>>(Executor*)> initial_task) {
     auto serial_executor = std::unique_ptr<SerialExecutor>(new SerialExecutor());
     return serial_executor->RunGenerator(std::move(initial_task),
                                          std::move(serial_executor));
@@ -294,15 +294,13 @@ class ARROW_EXPORT SerialExecutor : public Executor {
 
   void RunLoop();
   void Finish();
+  bool IsFinished();
   void Pause();
   void Unpause();
 
   template <typename T, typename FTSync = typename Future<T>::SyncType>
   Future<T> Run(TopLevelTask<T> initial_task) {
     auto final_fut = std::move(initial_task)(this);
-    if (final_fut.is_finished()) {
-      return final_fut;
-    }
     final_fut.AddCallback([this](const FTSync&) { Finish(); });
     RunLoop();
     return final_fut;
@@ -310,10 +308,35 @@ class ARROW_EXPORT SerialExecutor : public Executor {
 
   template <typename T>
   Iterator<T> RunGenerator(
-      internal::FnOnce<std::function<Future<T>()>(Executor*)> initial_task,
+      internal::FnOnce<Result<std::function<Future<T>()>>(Executor*)> initial_task,
       std::unique_ptr<SerialExecutor> self) {
-    auto generator = std::move(initial_task)(this);
-    struct {
+    auto maybe_generator = std::move(initial_task)(this);
+    if (!maybe_generator.ok()) {
+      return MakeErrorIterator<T>(maybe_generator.status());
+    }
+    auto generator = maybe_generator.MoveValueUnsafe();
+    struct SerialIterator {
+      ARROW_DISALLOW_COPY_AND_ASSIGN(SerialIterator);
+      ARROW_DEFAULT_MOVE_AND_ASSIGN(SerialIterator);
+      ~SerialIterator() {
+        // A serial iterator must be consumed before it can be destroyed.  Allowing it to
+        // do otherwise would lead to resource leakage.  There will likely be deadlocks at
+        // this spot in the future but these will be the result of other bugs and not the
+        // fact that we are forcing consumption here.
+
+        // If a streaming API needs to support early abandonment then it should be done so
+        // with a cancellation token and not simply discarding the iterator and expecting
+        // the underlying work to clean up correctly.
+        if (executor && !executor->IsFinished()) {
+          while (true) {
+            Result<T> maybe_next = Next();
+            if (!maybe_next.ok() || IsIterationEnd(*maybe_next)) {
+              break;
+            }
+          }
+        }
+      }
+
       Result<T> Next() {
         executor->Unpause();
         // This call will probably lead to a bunch of tasks being
@@ -343,8 +366,8 @@ class ARROW_EXPORT SerialExecutor : public Executor {
 
       std::unique_ptr<SerialExecutor> executor;
       std::function<Future<T>()> generator;
-    } iter{std::move(self), std::move(generator)};
-    return Iterator<T>(std::move(iter));
+    };
+    return Iterator<T>(SerialIterator{std::move(self), std::move(generator)});
   }
 };
 

@@ -350,6 +350,50 @@ TEST(SerialExecutor, AsyncGeneratorWithCleanup) {
   ASSERT_TRUE(follow_up_ran);
 }
 
+TEST(SerialExecutor, AbandonIteratorWithCleanup) {
+  // If we abandon an iterator we still need to drain all remaining tasks
+  bool follow_up_ran = false;
+  bool first = true;
+  {
+    Iterator<TestInt> iter =
+        SerialExecutor::RunGeneratorInSerialExecutor<TestInt>([&](Executor* executor) {
+          return [=, &first, &follow_up_ran]() -> Future<TestInt> {
+            if (first) {
+              first = false;
+              Future<TestInt> end =
+                  DeferNotOk(executor->Submit([] { return TestInt(0); }));
+              RETURN_NOT_OK(executor->Spawn([&] { follow_up_ran = true; }));
+              return end;
+            }
+            return DeferNotOk(executor->Submit([] { return IterationEnd<TestInt>(); }));
+          };
+        });
+    ASSERT_FALSE(follow_up_ran);
+    ASSERT_OK_AND_EQ(TestInt(0), iter.Next());
+    // At this point the iterator still has one remaining cleanup task
+    ASSERT_FALSE(follow_up_ran);
+  }
+  ASSERT_TRUE(follow_up_ran);
+}
+
+TEST(SerialExecutor, FailingIteratorWithCleanup) {
+  // If an iterator hits an error we should still generally run any remaining tasks as
+  // they might be cleanup tasks.
+  bool follow_up_ran = false;
+  Iterator<TestInt> iter =
+      SerialExecutor::RunGeneratorInSerialExecutor<TestInt>([&](Executor* executor) {
+        return [=, &follow_up_ran]() -> Future<TestInt> {
+          Future<TestInt> end = DeferNotOk(executor->Submit(
+              []() -> Result<TestInt> { return Status::Invalid("XYZ"); }));
+          RETURN_NOT_OK(executor->Spawn([&] { follow_up_ran = true; }));
+          return end;
+        };
+      });
+  ASSERT_FALSE(follow_up_ran);
+  ASSERT_RAISES(Invalid, iter.Next());
+  ASSERT_TRUE(follow_up_ran);
+}
+
 class TransferTest : public testing::Test {
  public:
   internal::Executor* executor() { return mock_executor.get(); }
