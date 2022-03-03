@@ -361,7 +361,6 @@ class ARROW_EXPORT SerialExecutor : public Executor {
     RunLoop();
     return final_fut;
   }
-
 };
 
 /// An Executor implementation spawning tasks in FIFO manner on a fixed-size
