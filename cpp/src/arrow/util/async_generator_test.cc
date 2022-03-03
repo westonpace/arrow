@@ -1352,6 +1352,59 @@ TEST(TestAsyncUtil, ReadaheadFailed) {
   }
 }
 
+TEST(TestAsyncUtil, ReadaheadFailedWaitForInFlight) {
+  ASSERT_OK_AND_ASSIGN(auto thread_pool, internal::ThreadPool::Make(20));
+  // If a failure causes an early end then we should not emit that failure
+  // until all in-flight futures have completed.  This is to prevent tasks from
+  // outliving the generator
+  std::atomic<int32_t> counter(0);
+  auto failure_gating_task = GatingTask::Make();
+  auto in_flight_gating_task = GatingTask::Make();
+  auto source = [&]() -> Future<TestInt> {
+    auto count = counter++;
+    return DeferNotOk(thread_pool->Submit([&, count]() -> Result<TestInt> {
+      if (count == 0) {
+        failure_gating_task->Task()();
+        return Status::Invalid("X");
+      }
+      in_flight_gating_task->Task()();
+      // These are our in-flight tasks
+      return TestInt(0);
+    }));
+  };
+  auto readahead = MakeReadaheadGenerator<TestInt>(source, 10);
+  auto should_be_invalid = readahead();
+  ASSERT_OK(in_flight_gating_task->WaitForRunning(10));
+  ASSERT_OK(failure_gating_task->Unlock());
+  SleepABit();
+  // Can't be finished because in-flight tasks are still running
+  AssertNotFinished(should_be_invalid);
+  ASSERT_OK(in_flight_gating_task->Unlock());
+}
+
+TEST(TestAsyncUtil, ReadaheadFailedStress) {
+  constexpr int NTASKS = 10;
+  ASSERT_OK_AND_ASSIGN(auto thread_pool, internal::ThreadPool::Make(20));
+  for (int i = 0; i < NTASKS; i++) {
+    std::atomic<int32_t> counter(0);
+    std::atomic<bool> finished(false);
+    AsyncGenerator<TestInt> source = [&]() -> Future<TestInt> {
+      auto count = counter++;
+      return DeferNotOk(thread_pool->Submit([&, count]() -> Result<TestInt> {
+        SleepABit();
+        if (count == 5) {
+          return Status::Invalid("X");
+        }
+        // Generator should not have been finished at this point
+        EXPECT_FALSE(finished);
+        return TestInt(0);
+      }));
+    };
+    ASSERT_FINISHES_AND_RAISES(Invalid, CollectAsyncGenerator(source));
+    finished.store(false);
+  }
+}
+
 class EnumeratorTestFixture : public GeneratorTestFixture {
  protected:
   void AssertEnumeratedCorrectly(AsyncGenerator<Enumerated<TestInt>>& gen,

@@ -60,6 +60,9 @@ namespace arrow {
 // Readahead operators, and some other operators, may introduce queueing.  Any operators
 // that introduce buffering should detail the amount of buffering they introduce in their
 // MakeXYZ function comments.
+//
+// A generator should always be fully consumed before it is destroyed.
+// A generator should not emit a terminal item until it has finished all ongoing futures.
 template <typename T>
 using AsyncGenerator = std::function<Future<T>()>;
 
@@ -750,19 +753,32 @@ class ReadaheadGenerator {
   Future<T> AddMarkFinishedContinuation(Future<T> fut) {
     auto state = state_;
     return fut.Then(
-        [state](const T& result) -> Result<T> {
+        [state](const T& result) -> Future<T> {
           state->MarkFinishedIfDone(result);
+          if (state->finished.load()) {
+            if (state->num_running.fetch_sub(1) == 1) {
+              state->final_future.MarkFinished();
+            }
+          } else {
+            state->num_running.fetch_sub(1);
+          }
           return result;
         },
-        [state](const Status& err) -> Result<T> {
+        [state](const Status& err) -> Future<T> {
+          // If there is an error we need to make sure all running
+          // tasks finish before we return the error.
           state->finished.store(true);
-          return err;
+          if (state->num_running.fetch_sub(1) == 1) {
+            state->final_future.MarkFinished();
+          }
+          return state->final_future.Then([err]() -> Result<T> { return err; });
         });
   }
 
   Future<T> operator()() {
     if (state_->readahead_queue.empty()) {
       // This is the first request, let's pump the underlying queue
+      state_->num_running.store(state_->max_readahead);
       for (int i = 0; i < state_->max_readahead; i++) {
         auto next = state_->source_generator();
         auto next_after_check = AddMarkFinishedContinuation(std::move(next));
@@ -775,6 +791,7 @@ class ReadaheadGenerator {
     if (state_->finished.load()) {
       state_->readahead_queue.push(AsyncGeneratorEnd<T>());
     } else {
+      state_->num_running.fetch_add(1);
       auto back_of_queue = state_->source_generator();
       auto back_of_queue_after_check =
           AddMarkFinishedContinuation(std::move(back_of_queue));
@@ -786,9 +803,7 @@ class ReadaheadGenerator {
  private:
   struct State {
     State(AsyncGenerator<T> source_generator, int max_readahead)
-        : source_generator(std::move(source_generator)), max_readahead(max_readahead) {
-      finished.store(false);
-    }
+        : source_generator(std::move(source_generator)), max_readahead(max_readahead) {}
 
     void MarkFinishedIfDone(const T& next_result) {
       if (IsIterationEnd(next_result)) {
@@ -798,7 +813,9 @@ class ReadaheadGenerator {
 
     AsyncGenerator<T> source_generator;
     int max_readahead;
-    std::atomic<bool> finished;
+    Future<> final_future = Future<>::Make();
+    std::atomic<int> num_running{0};
+    std::atomic<bool> finished{false};
     std::queue<Future<T>> readahead_queue;
   };
 
