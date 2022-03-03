@@ -1739,6 +1739,7 @@ TEST(HashJoin, DictNegative) {
     EXPECT_FINISHES_AND_RAISES_WITH_MESSAGE_THAT(
         NotImplemented, ::testing::HasSubstr("Unifying differing dictionaries"),
         StartAndCollect(plan.get(), sink_gen));
+    ASSERT_FINISHES_OK(plan->finished());
   }
 }
 
