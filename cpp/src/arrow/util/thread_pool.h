@@ -287,6 +287,9 @@ class ARROW_EXPORT SerialExecutor : public Executor {
     }
     auto generator = maybe_generator.MoveValueUnsafe();
     struct SerialIterator {
+      SerialIterator(std::unique_ptr<SerialExecutor> executor,
+                     std::function<Future<T>()> generator)
+          : executor(std::move(executor)), generator(std::move(generator)) {}
       ARROW_DISALLOW_COPY_AND_ASSIGN(SerialIterator);
       ARROW_DEFAULT_MOVE_AND_ASSIGN(SerialIterator);
       ~SerialIterator() {
