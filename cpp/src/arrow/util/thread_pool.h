@@ -281,36 +281,7 @@ class ARROW_EXPORT SerialExecutor : public Executor {
   static Iterator<T> RunGeneratorInSerialExecutor(
       internal::FnOnce<Result<std::function<Future<T>()>>(Executor*)> initial_task) {
     auto serial_executor = std::unique_ptr<SerialExecutor>(new SerialExecutor());
-    return serial_executor->RunGenerator(std::move(initial_task),
-                                         std::move(serial_executor));
-  }
-
- private:
-  SerialExecutor();
-
-  // State uses mutex
-  struct State;
-  std::shared_ptr<State> state_;
-
-  void RunLoop();
-  void Finish();
-  bool IsFinished();
-  void Pause();
-  void Unpause();
-
-  template <typename T, typename FTSync = typename Future<T>::SyncType>
-  Future<T> Run(TopLevelTask<T> initial_task) {
-    auto final_fut = std::move(initial_task)(this);
-    final_fut.AddCallback([this](const FTSync&) { Finish(); });
-    RunLoop();
-    return final_fut;
-  }
-
-  template <typename T>
-  Iterator<T> RunGenerator(
-      internal::FnOnce<Result<std::function<Future<T>()>>(Executor*)> initial_task,
-      std::unique_ptr<SerialExecutor> self) {
-    auto maybe_generator = std::move(initial_task)(this);
+    auto maybe_generator = std::move(initial_task)(serial_executor.get());
     if (!maybe_generator.ok()) {
       return MakeErrorIterator<T>(maybe_generator.status());
     }
@@ -367,8 +338,30 @@ class ARROW_EXPORT SerialExecutor : public Executor {
       std::unique_ptr<SerialExecutor> executor;
       std::function<Future<T>()> generator;
     };
-    return Iterator<T>(SerialIterator{std::move(self), std::move(generator)});
+    return Iterator<T>(SerialIterator{std::move(serial_executor), std::move(generator)});
   }
+
+ private:
+  SerialExecutor();
+
+  // State uses mutex
+  struct State;
+  std::shared_ptr<State> state_;
+
+  void RunLoop();
+  void Finish();
+  bool IsFinished();
+  void Pause();
+  void Unpause();
+
+  template <typename T, typename FTSync = typename Future<T>::SyncType>
+  Future<T> Run(TopLevelTask<T> initial_task) {
+    auto final_fut = std::move(initial_task)(this);
+    final_fut.AddCallback([this](const FTSync&) { Finish(); });
+    RunLoop();
+    return final_fut;
+  }
+
 };
 
 /// An Executor implementation spawning tasks in FIFO manner on a fixed-size
