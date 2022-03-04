@@ -19,7 +19,7 @@
 # PKG_CPPFLAGS=@cflags@ -I../inst/include/
 
 # when it is not:
-PKG_CPPFLAGS=@cflags@
+PKG_CPPFLAGS=-g @cflags@
 
 # `-fvisibility=hidden` does not play well with UBSAN:
 # https://bugs.llvm.org/show_bug.cgi?id=39191

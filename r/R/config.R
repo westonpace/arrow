@@ -33,6 +33,8 @@ set_cpu_count <- function(num_threads) {
 #'
 #' @export
 io_thread_count <- function() {
+  # I couldn't figure out how to expose a function properly so I'm just hijacking io_thread_count
+  TestSafeCallIntoR()
   GetIOThreadPoolCapacity()
 }
 

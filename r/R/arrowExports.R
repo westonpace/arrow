@@ -1700,6 +1700,10 @@ ipc___RecordBatchStreamWriter__Open <- function(stream, schema, use_legacy_forma
   .Call(`_arrow_ipc___RecordBatchStreamWriter__Open`, stream, schema, use_legacy_format, metadata_version)
 }
 
+TestSafeCallIntoR <- function() {
+  .Call(`_arrow_TestSafeCallIntoR`)
+}
+
 Array__GetScalar <- function(x, i) {
   .Call(`_arrow_Array__GetScalar`, x, i)
 }
