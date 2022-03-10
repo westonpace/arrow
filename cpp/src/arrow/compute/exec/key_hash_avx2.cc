@@ -44,20 +44,20 @@ inline __m256i Hashing32::combine_hashes_avx2(__m256i previous_hash, __m256i has
   return new_hash;
 }
 
-template <bool T_COMBINE_HASHES>
+template <bool kCombineHashes>
 void Hashing32::avalanche_all_avx2(uint32_t num_rows_to_process, uint32_t* hashes,
                                    const uint32_t* hashes_temp_for_combine) {
   constexpr int unroll = 8;
   for (uint32_t i = 0; i < num_rows_to_process / unroll; ++i) {
     __m256i acc;
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes_temp_for_combine) +
                                i);
     } else {
       acc = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + i);
     }
     acc = avalanche_avx2(acc);
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       __m256i previous_hash =
           _mm256_loadu_si256(reinterpret_cast<const __m256i*>(hashes) + i);
       acc = combine_hashes_avx2(previous_hash, acc);
@@ -66,7 +66,7 @@ void Hashing32::avalanche_all_avx2(uint32_t num_rows_to_process, uint32_t* hashe
   }
   for (uint32_t i = num_rows_to_process - (num_rows_to_process % unroll);
        i < num_rows_to_process; ++i) {
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[i] = combine_hashes(hashes[i], avalanche(hashes_temp_for_combine[i]));
     } else {
       hashes[i] = avalanche(hashes[i]);
@@ -109,7 +109,7 @@ inline __m256i Hashing32::stripe_mask_avx2(int i, int j) {
                          0x0706050403020100ULL, 0x0f0e0d0c0b0a0908ULL));
 }
 
-template <bool two_equal_lengths>
+template <bool kTwoEqualLengths>
 inline __m256i Hashing32::process_stripes_avx2(int64_t num_stripes_A,
                                                int64_t num_stripes_B,
                                                __m256i mask_last_stripe,
@@ -130,7 +130,7 @@ inline __m256i Hashing32::process_stripes_avx2(int64_t num_stripes_A,
   int64_t offset_shorter, offset_longer;
   int64_t num_stripes_shorter, num_stripes_longer;
 
-  if (!two_equal_lengths) {
+  if (!kTwoEqualLengths) {
     int64_t swap_mask = num_stripes_B > num_stripes_A ? ~0LL : 0LL;
     swap_permute = _mm256_xor_si256(_mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7),
                                     _mm256_set1_epi32(swap_mask & 4));
@@ -161,7 +161,7 @@ inline __m256i Hashing32::process_stripes_avx2(int64_t num_stripes_A,
           reinterpret_cast<const __m128i*>(keys + offset_longer) + istripe)),
       _mm_loadu_si128(reinterpret_cast<const __m128i*>(keys + offset_shorter) + istripe),
       1);
-  if (!two_equal_lengths) {
+  if (!kTwoEqualLengths) {
     __m256i acc_copy = acc;
     for (; istripe + 1 < num_stripes_longer; ++istripe) {
       acc = round_avx2(acc, stripe);
@@ -176,13 +176,13 @@ inline __m256i Hashing32::process_stripes_avx2(int64_t num_stripes_A,
   }
   stripe = _mm256_and_si256(stripe, mask_last_stripe);
   acc = round_avx2(acc, stripe);
-  if (!two_equal_lengths) {
+  if (!kTwoEqualLengths) {
     acc = _mm256_permutevar8x32_epi32(acc, swap_permute);
   }
   return acc;
 }
 
-template <bool combine_hashes>
+template <bool kCombineHashes>
 uint32_t Hashing32::hash_fixedlen_imp_avx2(uint32_t num_rows, uint64_t length,
                                            const uint8_t* keys, uint32_t* hashes,
                                            uint32_t* hashes_temp_for_combine) {
@@ -203,12 +203,12 @@ uint32_t Hashing32::hash_fixedlen_imp_avx2(uint32_t num_rows, uint64_t length,
   __m256i mask_last_stripe = stripe_mask_avx2(num_tail_bytes, num_tail_bytes);
 
   for (uint32_t i = 0; i < num_rows_to_process / unroll; ++i) {
-    __m256i acc = process_stripes_avx2</*two_equal_lengths=*/true>(
+    __m256i acc = process_stripes_avx2</*kTwoEqualLengths=*/true>(
         num_stripes, num_stripes, mask_last_stripe, keys,
         static_cast<int64_t>(i) * unroll * length,
         static_cast<int64_t>(i) * unroll * length + length);
 
-    if (combine_hashes) {
+    if (kCombineHashes) {
       reinterpret_cast<uint64_t*>(hashes_temp_for_combine)[i] =
           combine_accumulators_avx2(acc);
     } else {
@@ -216,7 +216,7 @@ uint32_t Hashing32::hash_fixedlen_imp_avx2(uint32_t num_rows, uint64_t length,
     }
   }
 
-  avalanche_all_avx2<combine_hashes>(num_rows_to_process, hashes,
+  avalanche_all_avx2<kCombineHashes>(num_rows_to_process, hashes,
                                      hashes_temp_for_combine);
 
   return num_rows_to_process;
@@ -235,7 +235,7 @@ uint32_t Hashing32::hash_fixedlen_avx2(bool combine_hashes, uint32_t num_rows,
   }
 }
 
-template <typename T, bool combine_hashes>
+template <typename T, bool kCombineHashes>
 uint32_t Hashing32::hash_varlen_imp_avx2(uint32_t num_rows, const T* offsets,
                                          const uint8_t* concatenated_keys,
                                          uint32_t* hashes,
@@ -271,11 +271,11 @@ uint32_t Hashing32::hash_varlen_imp_avx2(uint32_t num_rows, const T* offsets,
 
     __m256i mask_last_stripe = stripe_mask_avx2(num_tail_bytes_A, num_tail_bytes_B);
 
-    __m256i acc = process_stripes_avx2</*two_equal_lengths=*/false>(
+    __m256i acc = process_stripes_avx2</*kTwoEqualLengths=*/false>(
         num_stripes_A, num_stripes_B, mask_last_stripe, concatenated_keys,
         static_cast<int64_t>(offset_A), static_cast<int64_t>(offset_B));
 
-    if (combine_hashes) {
+    if (kCombineHashes) {
       reinterpret_cast<uint64_t*>(hashes_temp_for_combine)[i] =
           combine_accumulators_avx2(acc);
     } else {
@@ -283,7 +283,7 @@ uint32_t Hashing32::hash_varlen_imp_avx2(uint32_t num_rows, const T* offsets,
     }
   }
 
-  avalanche_all_avx2<combine_hashes>(num_rows_to_process, hashes,
+  avalanche_all_avx2<kCombineHashes>(num_rows_to_process, hashes,
                                      hashes_temp_for_combine);
 
   return num_rows_to_process;

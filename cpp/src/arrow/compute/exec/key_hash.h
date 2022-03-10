@@ -34,18 +34,6 @@ namespace compute {
 //
 class Hashing32 {
  public:
-  static void hash_fixed(int64_t hardware_flags, bool combine_hashes, uint32_t num_keys,
-                         uint64_t length_key, const uint8_t* keys, uint32_t* hashes,
-                         uint32_t* temp_hashes_for_combine);
-
-  static void hash_varlen(int64_t hardware_flags, bool combine_hashes, uint32_t num_rows,
-                          const uint32_t* offsets, const uint8_t* concatenated_keys,
-                          uint32_t* hashes, uint32_t* temp_hashes_for_combine);
-
-  static void hash_varlen(int64_t hardware_flags, bool combine_hashes, uint32_t num_rows,
-                          const uint64_t* offsets, const uint8_t* concatenated_keys,
-                          uint32_t* hashes, uint32_t* temp_hashes_for_combine);
-
   static void HashMultiColumn(const std::vector<KeyEncoder::KeyColumnArray>& cols,
                               KeyEncoder::KeyEncoderContext* ctx, uint32_t* out_hash);
 
@@ -71,6 +59,19 @@ class Hashing32 {
     acc ^= (acc >> 16);
     return acc;
   }
+
+  static void hash_fixed(int64_t hardware_flags, bool combine_hashes, uint32_t num_keys,
+                         uint64_t length_key, const uint8_t* keys, uint32_t* hashes,
+                         uint32_t* temp_hashes_for_combine);
+
+  static void hash_varlen(int64_t hardware_flags, bool combine_hashes, uint32_t num_rows,
+                          const uint32_t* offsets, const uint8_t* concatenated_keys,
+                          uint32_t* hashes, uint32_t* temp_hashes_for_combine);
+
+  static void hash_varlen(int64_t hardware_flags, bool combine_hashes, uint32_t num_rows,
+                          const uint64_t* offsets, const uint8_t* concatenated_keys,
+                          uint32_t* hashes, uint32_t* temp_hashes_for_combine);
+
   static inline uint32_t round(uint32_t acc, uint32_t input);
   static inline uint32_t combine_accumulators(uint32_t acc1, uint32_t acc2, uint32_t acc3,
                                               uint32_t acc4);
@@ -88,18 +89,18 @@ class Hashing32 {
                                          uint32_t* acc4);
   static inline void stripe_mask(int i, uint32_t* mask1, uint32_t* mask2, uint32_t* mask3,
                                  uint32_t* mask4);
-  template <bool combine_hashes>
+  template <bool kCombineHashes>
   static void hash_fixedlen_imp(uint32_t num_rows, uint64_t length, const uint8_t* keys,
                                 uint32_t* hashes);
-  template <typename T, bool combine_hashes>
+  template <typename T, bool kCombineHashes>
   static void hash_varlen_imp(uint32_t num_rows, const T* offsets,
                               const uint8_t* concatenated_keys, uint32_t* hashes);
-  template <bool combine_hashes>
+  template <bool kCombineHashes>
   static void hash_bit_imp(int64_t bit_offset, uint32_t num_keys, const uint8_t* keys,
                            uint32_t* hashes);
   static void hash_bit(bool combine_hashes, int64_t bit_offset, uint32_t num_keys,
                        const uint8_t* keys, uint32_t* hashes);
-  template <bool combine_hashes, typename T>
+  template <bool kCombineHashes, typename T>
   static void hash_int_imp(uint32_t num_keys, const T* keys, uint32_t* hashes);
   static void hash_int(bool combine_hashes, uint32_t num_keys, uint64_t length_key,
                        const uint8_t* keys, uint32_t* hashes);
@@ -107,7 +108,7 @@ class Hashing32 {
 #if defined(ARROW_HAVE_AVX2)
   static inline __m256i avalanche_avx2(__m256i hash);
   static inline __m256i combine_hashes_avx2(__m256i previous_hash, __m256i hash);
-  template <bool combine_hashes>
+  template <bool kCombineHashes>
   static void avalanche_all_avx2(uint32_t num_rows, uint32_t* hashes,
                                  const uint32_t* hashes_temp_for_combine);
   static inline __m256i round_avx2(__m256i acc, __m256i input);
@@ -118,14 +119,14 @@ class Hashing32 {
                                              __m256i mask_last_stripe,
                                              const uint8_t* keys, int64_t offset_A,
                                              int64_t offset_B);
-  template <bool combine_hashes>
+  template <bool kCombineHashes>
   static uint32_t hash_fixedlen_imp_avx2(uint32_t num_rows, uint64_t length,
                                          const uint8_t* keys, uint32_t* hashes,
                                          uint32_t* hashes_temp_for_combine);
   static uint32_t hash_fixedlen_avx2(bool combine_hashes, uint32_t num_rows,
                                      uint64_t length, const uint8_t* keys,
                                      uint32_t* hashes, uint32_t* hashes_temp_for_combine);
-  template <typename T, bool combine_hashes>
+  template <typename T, bool kCombineHashes>
   static uint32_t hash_varlen_imp_avx2(uint32_t num_rows, const T* offsets,
                                        const uint8_t* concatenated_keys, uint32_t* hashes,
                                        uint32_t* hashes_temp_for_combine);

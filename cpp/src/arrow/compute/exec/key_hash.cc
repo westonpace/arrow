@@ -103,7 +103,7 @@ inline void Hashing32::stripe_mask(int i, uint32_t* mask1, uint32_t* mask2,
   *mask4 = util::SafeLoadAs<uint32_t>(mask_base + 3 * sizeof(uint32_t));
 }
 
-template <bool T_COMBINE_HASHES>
+template <bool kCombineHashes>
 void Hashing32::hash_fixedlen_imp(uint32_t num_rows, uint64_t length, const uint8_t* keys,
                                   uint32_t* hashes) {
   // Calculate the number of rows that skip the last 16 bytes
@@ -128,7 +128,7 @@ void Hashing32::hash_fixedlen_imp(uint32_t num_rows, uint64_t length, const uint
     uint32_t acc = combine_accumulators(acc1, acc2, acc3, acc4);
     acc = avalanche(acc);
 
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[i] = combine_hashes(hashes[i], acc);
     } else {
       hashes[i] = acc;
@@ -148,7 +148,7 @@ void Hashing32::hash_fixedlen_imp(uint32_t num_rows, uint64_t length, const uint
     uint32_t acc = combine_accumulators(acc1, acc2, acc3, acc4);
     acc = avalanche(acc);
 
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[i] = combine_hashes(hashes[i], acc);
     } else {
       hashes[i] = acc;
@@ -156,7 +156,7 @@ void Hashing32::hash_fixedlen_imp(uint32_t num_rows, uint64_t length, const uint
   }
 }
 
-template <typename T, bool T_COMBINE_HASHES>
+template <typename T, bool kCombineHashes>
 void Hashing32::hash_varlen_imp(uint32_t num_rows, const T* offsets,
                                 const uint8_t* concatenated_keys, uint32_t* hashes) {
   // Calculate the number of rows that skip the last 16 bytes
@@ -189,7 +189,7 @@ void Hashing32::hash_varlen_imp(uint32_t num_rows, const T* offsets,
     uint32_t acc = combine_accumulators(acc1, acc2, acc3, acc4);
     acc = avalanche(acc);
 
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[i] = combine_hashes(hashes[i], acc);
     } else {
       hashes[i] = acc;
@@ -224,7 +224,7 @@ void Hashing32::hash_varlen_imp(uint32_t num_rows, const T* offsets,
     uint32_t acc = combine_accumulators(acc1, acc2, acc3, acc4);
     acc = avalanche(acc);
 
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[i] = combine_hashes(hashes[i], acc);
     } else {
       hashes[i] = acc;
@@ -272,14 +272,14 @@ void Hashing32::hash_varlen(int64_t hardware_flags, bool combine_hashes,
   }
 }
 
-template <bool T_COMBINE_HASHES>
+template <bool kCombineHashes>
 void Hashing32::hash_bit_imp(int64_t bit_offset, uint32_t num_keys, const uint8_t* keys,
                              uint32_t* hashes) {
   for (uint32_t i = 0; i < num_keys; ++i) {
     uint32_t bit = bit_util::GetBit(keys, bit_offset + i) ? 1 : 0;
     uint32_t hash = PRIME32_1 * (1 - bit) + PRIME32_2 * bit;
 
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[i] = combine_hashes(hashes[i], hash);
     } else {
       hashes[i] = hash;
@@ -296,14 +296,14 @@ void Hashing32::hash_bit(bool combine_hashes, int64_t bit_offset, uint32_t num_k
   }
 }
 
-template <bool T_COMBINE_HASHES, typename T>
+template <bool kCombineHashes, typename T>
 void Hashing32::hash_int_imp(uint32_t num_keys, const T* keys, uint32_t* hashes) {
   constexpr uint64_t multiplier = 11400714785074694791ULL;
   for (uint32_t ikey = 0; ikey < num_keys; ++ikey) {
     uint64_t x = static_cast<uint64_t>(keys[ikey]);
     uint32_t hash = static_cast<uint32_t>(BYTESWAP(x * multiplier));
 
-    if (T_COMBINE_HASHES) {
+    if (kCombineHashes) {
       hashes[ikey] = combine_hashes(hashes[ikey], hash);
     } else {
       hashes[ikey] = hash;
