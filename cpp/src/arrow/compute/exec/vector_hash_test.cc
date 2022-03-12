@@ -20,25 +20,74 @@
 #include <chrono>
 #include <map>
 #include <set>
+#include "arrow/array/builder_binary.h"
 #include "arrow/compute/exec/key_hash.h"
 #include "arrow/compute/exec/test_util.h"
 #include "arrow/compute/exec/util.h"
 #include "arrow/util/cpu_info.h"
+#include "arrow/util/pcg_random.h"
 
 namespace arrow {
+
+using internal::checked_pointer_cast;
+
 namespace compute {
 
-void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen_input,
-                       int min_length, int max_length) {
+Result<std::shared_ptr<BinaryArray>> GenerateUniqueRandomBinary(
+    random::pcg32_fast* random, int num, int min_length, int max_length) {
+  BinaryBuilder builder;
+  std::set<std::string> unique_key_strings;
+  uint8_t temp_buffer[max_length];
+  std::uniform_int_distribution<int> length_gen(min_length, max_length);
+  std::uniform_int_distribution<uint32_t> byte_gen(0,
+                                                   std::numeric_limits<uint8_t>::max());
+
+  int num_inserted = 0;
+  while (num_inserted < num) {
+    int length = length_gen(*random);
+    std::generate(temp_buffer, temp_buffer + length,
+                  [&] { return static_cast<uint8_t>(byte_gen(*random)); });
+    std::string buffer_as_str(reinterpret_cast<char*>(temp_buffer), length);
+    if (unique_key_strings.insert(buffer_as_str).second) {
+      num_inserted++;
+      ARROW_RETURN_NOT_OK(builder.Append(temp_buffer, length));
+    }
+  }
+  ARROW_ASSIGN_OR_RAISE(auto uniques, builder.Finish());
+  return checked_pointer_cast<BinaryArray>(uniques);
+}
+
+Result<std::pair<std::vector<int>, std::shared_ptr<BinaryArray>>> SampleUniqueBinary(
+    random::pcg32_fast* random, int num, const BinaryArray& uniques) {
+  BinaryBuilder builder;
+  std::vector<int> row_ids;
+  row_ids.resize(num);
+
+  std::uniform_int_distribution<int> row_id_gen(0, uniques.length() - 1);
+  for (int i = 0; i < num; ++i) {
+    int row_id = row_id_gen(*random);
+    row_ids[i] = row_id;
+    ARROW_RETURN_NOT_OK(builder.Append(uniques.GetView(row_id)));
+  }
+  ARROW_ASSIGN_OR_RAISE(std::shared_ptr<Array> sampled, builder.Finish());
+  return std::pair<std::vector<int>, std::shared_ptr<BinaryArray>>{
+      std::move(row_ids), checked_pointer_cast<BinaryArray>(sampled)};
+}
+
+void TestVectorHashImp(random::pcg32_fast* random, bool use_32bit_hash,
+                       bool use_varlen_input, int min_length, int max_length) {
   ARROW_DCHECK(use_varlen_input || min_length == max_length);
 
   constexpr int min_num_unique = 100;
   constexpr int max_num_unique = 1000;
   constexpr int min_num_rows = 4000;
   constexpr int max_num_rows = 64000;
-  int num_unique =
-      min_num_unique + (random.next() % (max_num_unique - min_num_unique + 1));
-  int num_rows = min_num_rows + (random.next() % (max_num_rows - min_num_rows + 1));
+
+  std::uniform_int_distribution<int> num_unique_gen(min_num_unique, max_num_unique);
+  std::uniform_int_distribution<int> num_rows_gen(min_num_rows, max_num_rows);
+
+  int num_unique = num_unique_gen(*random);
+  int num_rows = num_rows_gen(*random);
 
   SCOPED_TRACE("num_bits = " + std::to_string(use_32bit_hash ? 32 : 64) +
                " varlen = " + std::string(use_varlen_input ? "yes" : "no") +
@@ -46,69 +95,20 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
                std::to_string(num_rows) + " min_length " + std::to_string(min_length) +
                " max_length " + std::to_string(max_length));
 
+  // The hash can only support 2^(length_in_bits-1) unique values
   if (max_length == 1) {
     num_unique &= 0x7f;
   }
 
-  std::vector<uint32_t> unique_keys_offsets;
-  unique_keys_offsets.resize(num_unique + 1);
-  unique_keys_offsets[0] = 0;
-
-  const int num_bytes = unique_keys_offsets[num_unique];
-  std::vector<uint8_t> unique_keys;
-  unique_keys.resize(num_bytes);
-  std::set<std::string> unique_key_strings;
-  for (int i = 0; i < num_unique; ++i) {
-    for (;;) {
-      int next_length;
-      if (use_varlen_input) {
-        next_length = min_length + random.next() % (max_length - min_length + 1);
-      } else {
-        next_length = max_length;
-      }
-      unique_keys_offsets[i + 1] = unique_keys_offsets[i] + next_length;
-      unique_keys.resize(unique_keys_offsets[i + 1]);
-      uint8_t* next_key = unique_keys.data() + unique_keys_offsets[i];
-
-      for (int iword = 0; iword < next_length / static_cast<int>(sizeof(uint64_t));
-           ++iword) {
-        reinterpret_cast<uint64_t*>(next_key)[iword] = random.next();
-      }
-      if (next_length % sizeof(uint64_t) > 0) {
-        uint8_t* tail = next_key + next_length - (next_length % sizeof(uint64_t));
-        for (int ibyte = 0; ibyte < (next_length % static_cast<int>(sizeof(uint64_t)));
-             ++ibyte) {
-          tail[ibyte] = static_cast<uint8_t>(random.next() & 0xff);
-        }
-      }
-      std::string next_key_string =
-          std::string(reinterpret_cast<const char*>(next_key), next_length);
-      if (unique_key_strings.find(next_key_string) == unique_key_strings.end()) {
-        unique_key_strings.insert(next_key_string);
-        break;
-      }
-    }
-  }
-
-  std::vector<int> row_ids;
-  row_ids.resize(num_rows);
-  std::vector<uint8_t> keys;
-  std::vector<uint32_t> keys_offsets;
-  keys_offsets.resize(num_rows + 1);
-  keys_offsets[0] = 0;
-  for (int i = 0; i < num_rows; ++i) {
-    int row_id = random.next() % num_unique;
-    row_ids[i] = row_id;
-    int next_length = unique_keys_offsets[row_id + 1] - unique_keys_offsets[row_id];
-    keys_offsets[i + 1] = keys_offsets[i] + next_length;
-  }
-  keys.resize(keys_offsets[num_rows]);
-  for (int i = 0; i < num_rows; ++i) {
-    int row_id = row_ids[i];
-    int next_length = keys_offsets[i + 1] - keys_offsets[i];
-    memcpy(keys.data() + keys_offsets[i],
-           unique_keys.data() + unique_keys_offsets[row_id], next_length);
-  }
+  ASSERT_OK_AND_ASSIGN(
+      std::shared_ptr<BinaryArray> uniques,
+      GenerateUniqueRandomBinary(random, num_unique, min_length, max_length));
+  ASSERT_OK_AND_ASSIGN(auto sampled, SampleUniqueBinary(random, num_rows, *uniques));
+  const std::vector<int>& row_ids = sampled.first;
+  const std::shared_ptr<BinaryArray>& keys_array = sampled.second;
+  const uint8_t* keys = keys_array->raw_data();
+  const uint32_t* key_offsets =
+      reinterpret_cast<const uint32_t*>(keys_array->raw_value_offsets());
 
   constexpr int min_rows_for_timing = 1 << 23;
   int num_repeats = static_cast<int>(bit_util::CeilDiv(min_rows_for_timing, num_rows));
@@ -137,8 +137,7 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
       if (use_32bit_hash) {
         if (!use_varlen_input) {
           Hashing32::hash_fixed(use_simd ? hardware_flags_simd : hardware_flags_scalar,
-                                /*combine_hashes=*/false, num_rows, max_length,
-                                keys.data(),
+                                /*combine_hashes=*/false, num_rows, max_length, keys,
                                 use_simd ? hashes_simd32.data() : hashes_scalar32.data(),
                                 temp_buffer.data());
         } else {
@@ -147,8 +146,7 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
 
             Hashing32::hash_varlen(
                 use_simd ? hardware_flags_simd : hardware_flags_scalar,
-                /*combine_hashes=*/false, batch_size_next,
-                keys_offsets.data() + first_row, keys.data(),
+                /*combine_hashes=*/false, batch_size_next, key_offsets + first_row, keys,
                 (use_simd ? hashes_simd32.data() : hashes_scalar32.data()) + first_row,
                 temp_buffer.data());
 
@@ -157,17 +155,17 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
         }
       } else {
         if (!use_varlen_input) {
-          Hashing64::hash_fixed(/*combine_hashes=*/false, num_rows, max_length,
-                                keys.data(),
+          Hashing64::hash_fixed(/*combine_hashes=*/false, num_rows, max_length, keys,
                                 use_simd ? hashes_simd64.data() : hashes_scalar64.data());
         } else {
           Hashing64::hash_varlen(
-              /*combine_hashes=*/false, num_rows, keys_offsets.data(), keys.data(),
+              /*combine_hashes=*/false, num_rows, key_offsets, keys,
               use_simd ? hashes_simd64.data() : hashes_scalar64.data());
         }
       }
     }
   }
+
   if (use_32bit_hash) {
     for (int i = 0; i < num_rows; ++i) {
       hashes_scalar64[i] = hashes_scalar32[i];
@@ -179,7 +177,7 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
   //
   for (int i = 0; i < num_rows; ++i) {
     if (hashes_scalar64[i] != hashes_simd64[i]) {
-      ARROW_DCHECK(false);
+      ASSERT_FALSE(false) << "scalar and simd approaches yielded different hashes";
     }
   }
 
@@ -194,7 +192,7 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
     if (iter == unique_key_to_hash.end()) {
       unique_key_to_hash.insert(std::make_pair(row_ids[i], hashes_scalar64[i]));
     } else {
-      ARROW_DCHECK(iter->second == hashes_scalar64[i]);
+      ASSERT_EQ(iter->second, hashes_scalar64[i]);
     }
     if (unique_hashes.find(hashes_scalar64[i]) == unique_hashes.end()) {
       unique_hashes.insert(hashes_scalar64[i]);
@@ -204,27 +202,20 @@ void TestVectorHashImp(Random64Bit& random, bool use_32bit_hash, bool use_varlen
                                   static_cast<float>(num_unique - unique_hashes.size()) /
                                   static_cast<float>(num_unique);
   SCOPED_TRACE("percent_hash_collisions " + std::to_string(percent_hash_collisions));
-  ARROW_DCHECK(percent_hash_collisions < 5.0f);
+  ASSERT_LT(percent_hash_collisions, 5.0f) << "hash collision rate was too high";
 }
 
 TEST(VectorHash, Basic) {
-  Random64Bit random(/*seed=*/0);
+  random::pcg32_fast gen(/*seed=*/0);
 
-  int numtest = 100;
-
-  constexpr int min_length = 1;
+  constexpr int numtest = 10;
   constexpr int max_length = 50;
 
   for (bool use_32bit_hash : {true, false}) {
     for (bool use_varlen_input : {false, true}) {
       for (int itest = 0; itest < numtest; ++itest) {
-        int length = static_cast<int>(std::max(
-            static_cast<uint64_t>(use_varlen_input ? 2 : 1),
-            static_cast<uint64_t>(min_length +
-                                  random.next() % (max_length - min_length + 1))));
-
-        TestVectorHashImp(random, use_32bit_hash, use_varlen_input,
-                          use_varlen_input ? 0 : length, length);
+        TestVectorHashImp(&gen, use_32bit_hash, use_varlen_input,
+                          use_varlen_input ? 0 : max_length, max_length);
       }
     }
   }
