@@ -33,6 +33,10 @@ class MockExecutor : public internal::Executor {
     return Status::OK();
   }
 
+  bool OwnsThisThread() const override { return false; }
+
+  int GetThreadIndex() const override { return -1; }
+
   int spawn_count = 0;
 };
 
@@ -42,6 +46,10 @@ class MockExecutor : public internal::Executor {
 class DelayedExecutor : public internal::Executor {
  public:
   int GetCapacity() override { return 0; }
+
+  bool OwnsThisThread() const override { return false; }
+
+  int GetThreadIndex() const override { return -1; }
 
   Status SpawnReal(internal::TaskHints hints, internal::FnOnce<void()> task, StopToken,
                    StopCallback&&) override {

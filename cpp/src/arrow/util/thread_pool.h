@@ -199,7 +199,21 @@ class ARROW_EXPORT Executor {
 
   // Return true if the thread from which this function is called is owned by this
   // Executor. Returns false if this Executor does not support this property.
-  virtual bool OwnsThisThread() { return false; }
+  virtual bool OwnsThisThread() const = 0;
+
+  // Get a thread index which should be a number between 0 and GetCapacity()
+  //
+  // Will return -1 if OwnsThisThread == false
+  //
+  // Note: Thread index is not a thread id.  It is possible that two different
+  // threads call GetThreadIndex and get back the same value (just not at the same
+  // time)
+  //
+  // The guarantee offered is this:
+  //
+  // If a thread running task A gets thread index 'x' then no other thread will get
+  // task index 'x' until task A has completed.
+  virtual int GetThreadIndex() const = 0;
 
  protected:
   ARROW_DISALLOW_COPY_AND_ASSIGN(Executor);
@@ -260,6 +274,8 @@ class ARROW_EXPORT SerialExecutor : public Executor {
   int GetCapacity() override { return 1; };
   Status SpawnReal(TaskHints hints, FnOnce<void()> task, StopToken,
                    StopCallback&&) override;
+  bool OwnsThisThread() const override;
+  int GetThreadIndex() const override;
 
   /// \brief Runs the TopLevelTask and any scheduled tasks
   ///
@@ -297,6 +313,32 @@ class ARROW_EXPORT SerialExecutor : public Executor {
   void MarkFinished();
 };
 
+template <typename T>
+class ThreadLocalState {
+  ARROW_DISALLOW_COPY_AND_ASSIGN(ThreadLocalState);
+  ARROW_DEFAULT_MOVE_AND_ASSIGN(ThreadLocalState);
+
+  ThreadLocalState() { states_.resize(executor_->GetCapacity()); }
+  const Result<T>& Get() {
+    if (ARROW_PREDICT_FALSE(!executor_->OwnsThisThread())) {
+      return Status::Invalid(
+          "There was an attempt to use ThreadLocalState from outside the executor used "
+          "to initialize the state");
+    }
+    int thread_index = executor_->GetThreadIndex();
+    if (ARROW_PREDICT_FALSE(thread_index >= states_.size())) {
+      return Status::Invalid(
+          "Executor capacity was changed while an operation was running.  The "
+          "operation's thread local state is corrupt and will be aborted");
+    }
+    return states_[thread_index];
+  }
+
+ private:
+  Executor* executor_;
+  std::vector<T> states_;
+};
+
 /// An Executor implementation spawning tasks in FIFO manner on a fixed-size
 /// pool of worker threads.
 ///
@@ -320,7 +362,9 @@ class ARROW_EXPORT ThreadPool : public Executor {
   // match this value.
   int GetCapacity() override;
 
-  bool OwnsThisThread() override;
+  bool OwnsThisThread() const override;
+
+  int GetThreadIndex() const override;
 
   // Return the number of tasks either running or in the queue.
   int GetNumTasks();
