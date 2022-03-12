@@ -341,7 +341,7 @@ Status TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, int 
 
   int64_t num_repeats = 1LL;
 #ifdef NDEBUG
-  num_repeats = std::max(1LL, bit_util::CeilDiv(1000000ULL, num_probe));
+  num_repeats = std::max(static_cast<int64_t>(1), bit_util::CeilDiv(1000000ULL, num_probe));
 #endif
 
   // Verify no false negatives and measure false positives.
