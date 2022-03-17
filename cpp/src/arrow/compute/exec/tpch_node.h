@@ -31,6 +31,8 @@ namespace compute {
 class OrdersAndLineItemGenerator;
 class PartAndPartSupplierGenerator;
 
+void AppendNumberPaddedToNineDigits(char* out, int64_t x);
+
 class ARROW_EXPORT TpchGen {
  public:
   /*

@@ -17,13 +17,18 @@
 
 #include "benchmark/benchmark.h"
 
+#include "arrow/array/array_primitive.h"
 #include "arrow/compute/cast.h"
 #include "arrow/compute/exec/test_util.h"
 #include "arrow/compute/exec/tpch_node.h"
 #include "arrow/testing/future_util.h"
+#include "arrow/testing/random.h"
+#include "arrow/util/checked_cast.h"
+#include "arrow/util/formatting.h"
 #include "arrow/util/make_unique.h"
 
 namespace arrow {
+using internal::checked_pointer_cast;
 namespace compute {
 
 std::shared_ptr<ExecPlan> Plan_Q1(AsyncGenerator<util::optional<ExecBatch>>* sink_gen,
@@ -114,7 +119,38 @@ static void BM_Tpch_Q1(benchmark::State& st) {
   }
 }
 
-BENCHMARK(BM_Tpch_Q1)->Args({1})->ArgNames({"SF"});
+// BENCHMARK(BM_Tpch_Q1)->Args({1})->ArgNames({"SF"});
+
+static void BM_AppendNumberPaddedToNineDigits(benchmark::State& st) {
+  constexpr uint64_t kNumValues = 1 << 20;
+  std::vector<int64_t> numbers;
+  int64_t max = std::pow(10, st.range(0)) - 1;
+  ::arrow::randint(kNumValues, (int64_t)0, max, &numbers);
+  char* buffer = new char[9];
+  for (auto _ : st) {
+    for (auto it = numbers.begin(); it != numbers.end(); it++) {
+      AppendNumberPaddedToNineDigits(buffer, *it);
+    }
+  }
+  delete[] buffer;
+}
+BENCHMARK(BM_AppendNumberPaddedToNineDigits)->DenseRange(1, 9, 1)->ArgNames({"# Digits"});
+
+static void BM_FormatAllDigitsLeftPadded(benchmark::State& st) {
+  constexpr uint64_t kNumValues = 1 << 20;
+  std::vector<int64_t> numbers;
+  int64_t max = std::pow(10, st.range(0)) - 1;
+  ::arrow::randint(kNumValues, (int64_t)0, max, &numbers);
+  char* buffer = new char[9];
+  for (auto _ : st) {
+    for (auto it = numbers.begin(); it != numbers.end(); it++) {
+      char* out = buffer + 9;
+      ::arrow::internal::detail::FormatAllDigitsLeftPadded(*it, 9, '0', &out);
+    }
+  }
+  delete[] buffer;
+}
+BENCHMARK(BM_FormatAllDigitsLeftPadded)->DenseRange(1, 9, 1)->ArgNames({"# Digits"});
 
 }  // namespace compute
 }  // namespace arrow
