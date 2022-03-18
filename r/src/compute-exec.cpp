@@ -356,6 +356,8 @@ void Tpch_Dbgen_Write(const std::shared_ptr<compute::ExecPlan>& plan, int scale_
                       std::string base_dir,
                       arrow::dataset::ExistingDataBehavior existing_data_behavior,
                       int max_partitions) {
+  arrow::dataset::internal::Initialize();
+
   auto gen = ValueOrStop(arrow::compute::TpchGen::Make(plan.get(), scale_factor));
 
   compute::ExecNode* table;
@@ -384,6 +386,9 @@ void Tpch_Dbgen_Write(const std::shared_ptr<compute::ExecPlan>& plan, int scale_
   filesystem->CreateDir(base_path);
 
   auto format = std::make_shared<ds::ParquetFileFormat>();
+  auto partitioning_factory = arrow::dataset::HivePartitioning::MakeFactory();
+  std::vector<std::shared_ptr<arrow::Field>> fields;
+  auto partitioning = ValueOrStop(partitioning_factory->Finish(arrow::schema(fields)));
 
   ds::FileSystemDatasetWriteOptions write_options;
   write_options.file_write_options = format->DefaultWriteOptions();
@@ -391,7 +396,7 @@ void Tpch_Dbgen_Write(const std::shared_ptr<compute::ExecPlan>& plan, int scale_
       ds::ExistingDataBehavior::kDeleteMatchingPartitions;
   write_options.filesystem = filesystem;
   write_options.base_dir = base_path;
-  write_options.partitioning = arrow::dataset::Partitioning::Default();
+  write_options.partitioning = partitioning;
   write_options.basename_template = "part{i}.parquet";
   write_options.max_partitions = 1024;
 
@@ -401,7 +406,7 @@ void Tpch_Dbgen_Write(const std::shared_ptr<compute::ExecPlan>& plan, int scale_
   const ds::WriteNodeOptions options =
       ds::WriteNodeOptions{write_options, table->output_schema()};
 
-  MakeExecNodeOrStop("consuming_sink", plan.get(), {table}, options);
+  MakeExecNodeOrStop("write", plan.get(), {table}, options);
 
   cpp11::message("Just after consume");
 
