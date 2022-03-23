@@ -32,8 +32,8 @@
 namespace arrow {
 namespace compute {
 
-Status BuildBloomFilter(BloomFilterBuildStrategy strategy, size_t num_threads,
-                        int64_t hardware_flags, MemoryPool* pool, int64_t num_rows,
+Status BuildBloomFilter(BloomFilterBuildStrategy strategy, int64_t hardware_flags,
+                        MemoryPool* pool, int64_t num_rows,
                         std::function<void(int64_t, int, uint32_t*)> get_hash32_impl,
                         std::function<void(int64_t, int, uint64_t*)> get_hash64_impl,
                         BlockedBloomFilter* target) {
@@ -47,7 +47,7 @@ Status BuildBloomFilter(BloomFilterBuildStrategy strategy, size_t num_threads,
   thread_local_hashes32.resize(batch_size_max);
   thread_local_hashes64.resize(batch_size_max);
 
-  RETURN_NOT_OK(builder->Begin(num_threads, hardware_flags, pool, num_rows,
+  RETURN_NOT_OK(builder->Begin(/*num_threads=*/1, hardware_flags, pool, num_rows,
                                bit_util::CeilDiv(num_rows, batch_size_max), target));
 
   for (int64_t i = 0; i < num_batches; ++i) {
@@ -57,13 +57,11 @@ Status BuildBloomFilter(BloomFilterBuildStrategy strategy, size_t num_threads,
     if (target->NumHashBitsUsed() > 32) {
       uint64_t* hashes = thread_local_hashes64.data();
       get_hash64_impl(i * batch_size_max, batch_size, hashes);
-      Status status = builder->PushNextBatch(thread_index, batch_size, hashes);
-      ARROW_DCHECK(status.ok());
+      RETURN_NOT_OK(builder->PushNextBatch(thread_index, batch_size, hashes));
     } else {
       uint32_t* hashes = thread_local_hashes32.data();
       get_hash32_impl(i * batch_size_max, batch_size, hashes);
-      Status status = builder->PushNextBatch(thread_index, batch_size, hashes);
-      ARROW_DCHECK(status.ok());
+      RETURN_NOT_OK(builder->PushNextBatch(thread_index, batch_size, hashes));
     }
   }
 
@@ -100,9 +98,8 @@ void TestBloomSmallHashHelper(int64_t num_input_hashes, const T* input_hashes,
 //
 // Output FPR and build and probe cost.
 //
-Status TestBloomSmall(BloomFilterBuildStrategy strategy, int64_t num_build,
-                      int num_build_copies, int dop, bool use_simd,
-                      bool enable_prefetch) {
+void TestBloomSmall(BloomFilterBuildStrategy strategy, int64_t num_build,
+                    int num_build_copies, bool use_simd, bool enable_prefetch) {
   int64_t hardware_flags = use_simd ? ::arrow::internal::CpuInfo::AVX2 : 0;
 
   // Generate input keys
@@ -150,8 +147,8 @@ Status TestBloomSmall(BloomFilterBuildStrategy strategy, int64_t num_build,
   BlockedBloomFilter reference;
   BlockedBloomFilter bloom;
 
-  RETURN_NOT_OK(BuildBloomFilter(
-      BloomFilterBuildStrategy::SINGLE_THREADED, dop, hardware_flags, pool, num_build,
+  ASSERT_OK(BuildBloomFilter(
+      BloomFilterBuildStrategy::SINGLE_THREADED, hardware_flags, pool, num_build,
       [hashes32](int64_t first_row, int num_rows, uint32_t* output_hashes) {
         memcpy(output_hashes, hashes32.data() + first_row, num_rows * sizeof(uint32_t));
       },
@@ -160,8 +157,8 @@ Status TestBloomSmall(BloomFilterBuildStrategy strategy, int64_t num_build,
       },
       &reference));
 
-  RETURN_NOT_OK(BuildBloomFilter(
-      strategy, dop, hardware_flags, pool, num_build * num_build_copies,
+  ASSERT_OK(BuildBloomFilter(
+      strategy, hardware_flags, pool, num_build * num_build_copies,
       [hashes32, num_build](int64_t first_row, int num_rows, uint32_t* output_hashes) {
         TestBloomSmallHashHelper<uint32_t>(num_build, hashes32.data(), first_row,
                                            num_rows, output_hashes);
@@ -179,7 +176,7 @@ Status TestBloomSmall(BloomFilterBuildStrategy strategy, int64_t num_build,
     bloom.Fold();
   } else {
     if (strategy != BloomFilterBuildStrategy::SINGLE_THREADED) {
-      ARROW_DCHECK(reference.IsSameAs(&bloom));
+      ASSERT_TRUE(reference.IsSameAs(&bloom));
     }
   }
 
@@ -191,21 +188,28 @@ Status TestBloomSmall(BloomFilterBuildStrategy strategy, int64_t num_build,
   ARROW_SCOPED_TRACE("log_before = ", log_before, " log_after = ", log_after,
                      " percent_bits_set = ", 100.0f * fraction_of_bits_set);
 
-  // Verify no false negatives
-  //
-  for (int64_t i = 0; i < num_build; ++i) {
+  // Verify no false negatives and false positive rate is
+  // within reason
+  int64_t false_positives = 0;
+  for (int64_t i = 0; i < num_build + num_probe; ++i) {
     bool found;
     if (bloom.NumHashBitsUsed() > 32) {
       found = bloom.Find(hashes64[i]);
     } else {
       found = bloom.Find(hashes32[i]);
     }
-    if (!found) {
-      ARROW_DCHECK(false);
-      break;
+    // Every build key should be found
+    if (i < num_build) {
+      ASSERT_TRUE(found);
+    } else if (found) {
+      false_positives++;
     }
   }
-  return Status::OK();
+
+  double fpr = static_cast<double>(false_positives) / num_probe;
+  // Ideally this should be less than 0.05 but we check 0.1 here to avoid false failures
+  // due to rounding issues or minor inconsistencies in the theory
+  ASSERT_LT(fpr, 0.1) << "False positive rate for bloom filter was higher than expected";
 }
 
 template <typename T>
@@ -248,8 +252,8 @@ void TestBloomLargeHashHelper(int64_t hardware_flags, int64_t block,
 // Test with larger size Bloom filters (use large prime with arithmetic
 // sequence modulo 2^64).
 //
-Status TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, int dop,
-                      bool use_simd, bool enable_prefetch) {
+void TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, bool use_simd,
+                    bool enable_prefetch) {
   int64_t hardware_flags = use_simd ? ::arrow::internal::CpuInfo::AVX2 : 0;
 
   // Largest 63-bit prime
@@ -280,9 +284,9 @@ Status TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, int 
     if (ibuild == 0 && strategy == BloomFilterBuildStrategy::SINGLE_THREADED) {
       continue;
     }
-    RETURN_NOT_OK(BuildBloomFilter(
+    ASSERT_OK(BuildBloomFilter(
         ibuild == 0 ? BloomFilterBuildStrategy::SINGLE_THREADED : strategy,
-        ibuild == 0 ? 1 : dop, hardware_flags, pool, num_build,
+        hardware_flags, pool, num_build,
         [hardware_flags, &first_in_block](int64_t first_row, int num_rows,
                                           uint32_t* output_hashes) {
           const int64_t block = 1024;
@@ -299,7 +303,7 @@ Status TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, int 
   }
 
   if (strategy != BloomFilterBuildStrategy::SINGLE_THREADED) {
-    ARROW_DCHECK(reference.IsSameAs(&bloom));
+    ASSERT_TRUE(reference.IsSameAs(&bloom));
   }
 
   std::vector<uint32_t> hashes32;
@@ -313,6 +317,7 @@ Status TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, int 
   // Measure FPR and performance.
   //
   int64_t num_negatives_build = 0LL;
+  int64_t num_negatives_probe = 0LL;
 
   for (int64_t i = 0; i < num_build + num_probe;) {
     int64_t first_row = i < num_build ? i : num_build + ((i - num_build) % num_probe);
@@ -343,13 +348,18 @@ Status TestBloomLarge(BloomFilterBuildStrategy strategy, int64_t num_build, int 
     }
     if (i < num_build) {
       num_negatives_build += num_negatives;
+    } else {
+      num_negatives_probe += num_negatives;
     }
     i += next_batch_size;
   }
 
-  ARROW_DCHECK(num_negatives_build == 0);
-
-  return Status::OK();
+  ASSERT_EQ(num_negatives_build, 0);
+  int64_t probe_positives = num_probe - num_negatives_probe;
+  double fpr = probe_positives / static_cast<double>(num_probe);
+  // Ideally this should be less than 0.05 but we check 0.1 here to avoid false failures
+  // due to rounding issues or minor inconsistencies in the theory
+  ASSERT_LT(fpr, 0.1) << "False positive rate for bloom filter was higher than expected";
 }
 
 TEST(BloomFilter, Basic) {
@@ -387,9 +397,6 @@ TEST(BloomFilter, Basic) {
 
   static constexpr int64_t min_rows_for_large = 2 * 1024 * 1024;
 
-  // Number of parallel threads executing the test
-  int dop = 1;
-
   for (size_t istrategy = 0; istrategy < strategy.size(); ++istrategy) {
     for (int iparam_set = 0; iparam_set < num_param_sets; ++iparam_set) {
       ARROW_SCOPED_TRACE("%s ", params[iparam_set].use_avx2                 ? "AVX2"
@@ -399,15 +406,13 @@ TEST(BloomFilter, Basic) {
       for (size_t inum_build = 0; inum_build < num_build.size(); ++inum_build) {
         ARROW_SCOPED_TRACE("num_build ", static_cast<int>(num_build[inum_build]));
         if (num_build[inum_build] >= min_rows_for_large) {
-          ASSERT_OK(TestBloomLarge(strategy[istrategy], num_build[inum_build], dop,
-                                   params[iparam_set].use_avx2,
-                                   params[iparam_set].enable_prefetch));
+          TestBloomLarge(strategy[istrategy], num_build[inum_build],
+                         params[iparam_set].use_avx2, params[iparam_set].enable_prefetch);
 
         } else {
-          ASSERT_OK(TestBloomSmall(strategy[istrategy], num_build[inum_build],
-                                   params[iparam_set].insert_multiple_copies ? 8 : 1, dop,
-                                   params[iparam_set].use_avx2,
-                                   params[iparam_set].enable_prefetch));
+          TestBloomSmall(strategy[istrategy], num_build[inum_build],
+                         params[iparam_set].insert_multiple_copies ? 8 : 1,
+                         params[iparam_set].use_avx2, params[iparam_set].enable_prefetch);
         }
       }
     }
@@ -419,27 +424,20 @@ TEST(BloomFilter, Scaling) {
   num_build.push_back(1000000);
   num_build.push_back(4000000);
 
-  std::vector<int> dop;
-  dop.push_back(1);
-
   std::vector<BloomFilterBuildStrategy> strategy;
   strategy.push_back(BloomFilterBuildStrategy::PARALLEL);
 
   for (bool use_avx2 : {false, true}) {
     for (size_t istrategy = 0; istrategy < strategy.size(); ++istrategy) {
       for (size_t inum_build = 0; inum_build < num_build.size(); ++inum_build) {
-        for (size_t idop = 0; idop < dop.size(); ++idop) {
-          ARROW_SCOPED_TRACE("num_build = ", static_cast<int>(num_build[inum_build]));
-          ARROW_SCOPED_TRACE("strategy = ",
-                             strategy[istrategy] == BloomFilterBuildStrategy::PARALLEL
-                                 ? "PARALLEL"
-                                 : "SINGLE_THREADED");
-          ARROW_SCOPED_TRACE("avx2 = ", use_avx2 ? "AVX2" : "SCALAR");
-          ARROW_SCOPED_TRACE("dop = ", dop[idop]);
-          ASSERT_OK(TestBloomLarge(strategy[istrategy], num_build[inum_build], dop[idop],
-                                   use_avx2,
-                                   /*enable_prefetch=*/false));
-        }
+        ARROW_SCOPED_TRACE("num_build = ", static_cast<int>(num_build[inum_build]));
+        ARROW_SCOPED_TRACE("strategy = ",
+                           strategy[istrategy] == BloomFilterBuildStrategy::PARALLEL
+                               ? "PARALLEL"
+                               : "SINGLE_THREADED");
+        ARROW_SCOPED_TRACE("avx2 = ", use_avx2 ? "AVX2" : "SCALAR");
+        TestBloomLarge(strategy[istrategy], num_build[inum_build], use_avx2,
+                       /*enable_prefetch=*/false);
       }
     }
   }

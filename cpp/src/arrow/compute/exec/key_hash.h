@@ -42,7 +42,7 @@ class ARROW_EXPORT Hashing32 {
   template <typename T>
   friend void TestBloomLargeHashHelper(int64_t, int64_t, const std::vector<uint64_t>&,
                                        int64_t, int, T*);
-  friend Status TestBloomSmall(BloomFilterBuildStrategy, int64_t, int, int, bool, bool);
+  friend void TestBloomSmall(BloomFilterBuildStrategy, int64_t, int, bool, bool);
 
  public:
   static void HashMultiColumn(const std::vector<KeyEncoder::KeyColumnArray>& cols,
@@ -150,7 +150,7 @@ class ARROW_EXPORT Hashing64 {
   template <typename T>
   friend void TestBloomLargeHashHelper(int64_t, int64_t, const std::vector<uint64_t>&,
                                        int64_t, int, T*);
-  friend Status TestBloomSmall(BloomFilterBuildStrategy, int64_t, int, int, bool, bool);
+  friend void TestBloomSmall(BloomFilterBuildStrategy, int64_t, int, bool, bool);
 
  public:
   static void HashMultiColumn(const std::vector<KeyEncoder::KeyColumnArray>& cols,
