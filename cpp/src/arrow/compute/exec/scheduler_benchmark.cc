@@ -18,17 +18,23 @@
 namespace arrow {
 namespace internal {
 
+constexpr int kBatchSize = 1 << 13;
+constexpr int kNumTasks = 32;
+
 struct Workload {
   explicit Workload(int32_t size) : data_(size), size_(size), indices_(size) {
     std::default_random_engine gen(42);
     std::uniform_int_distribution<uint64_t> dist(0, std::numeric_limits<uint64_t>::max());
     std::generate(data_.begin(), data_.end(), [&]() { return dist(gen); });
-    
+
     std::iota(indices_.begin(), indices_.end(), 0);
-    std::shuffle(indices_.begin(), indices_.end(), std::default_random_engine(42));  
+    for (int offset = 0; offset < size; offset += kBatchSize) {
+      std::shuffle(indices_.begin() + offset, indices_.begin() + offset + kBatchSize,
+                   gen);
+    }
   }
 
-  void operator()();
+  void operator()(int, int);
 
  private:
   std::vector<uint64_t> data_;
@@ -36,10 +42,12 @@ struct Workload {
   std::vector<uint64_t> indices_;
 };
 
-void Workload::operator()() {
+void Workload::operator()(int offset, int length) {
   uint64_t result = 0;
-  for (uint64_t i = 0; i<size_; ++i) {
-    result = (result << (data_[indices_[i]] % 64)) - data_[indices_[i]];
+  uint64_t end = static_cast<uint64_t>(offset + length);
+  for (uint64_t i = offset; i < end; ++i) {
+    // result = (result << (data_[indices_[i]] % 64)) - data_[indices_[i]];
+    result = (result << (data_[i] % 64)) - data_[i];
   }
   benchmark::DoNotOptimize(result);
 }
@@ -47,8 +55,8 @@ void Workload::operator()() {
 struct Task {
   explicit Task(int32_t size) : workload_(size) {}
 
-  Status operator()() {
-    workload_();
+  Status operator()(int offset, int length) {
+    workload_(offset, length);
     return Status::OK();
   }
 
@@ -62,25 +70,27 @@ static void GroupedExecution(benchmark::State& state) {  // NOLINT non-const ref
   Workload workload(workload_size);
 
   for (auto _ : state) {
-    workload();
-    workload();
+    for (int i = 0; i < kNumTasks; i++) {
+      workload(0, workload_size);
+      workload(0, workload_size);
+    }
   }
 }
 
 static void BatchedExecution(benchmark::State& state) {  // NOLINT non-const reference
   const auto workload_size = static_cast<int64_t>(state.range(0));
-  const auto batch_size = 8000;
-  Workload workload(batch_size);
+  Workload workload(workload_size);
 
   for (auto _ : state) {
-    for (int i = 0; i < workload_size; i += batch_size) {
-      workload();
-      workload();
+    for (int offset = 0; offset < workload_size; offset += kBatchSize) {
+      for (int i = 0; i < kNumTasks; i++) {
+        workload(offset, kBatchSize);
+      }
     }
   }
 }
 
-BENCHMARK(GroupedExecution)->RangeMultiplier(2)->Range(2<<10, 2<<29);
-BENCHMARK(BatchedExecution)->RangeMultiplier(2)->Range(2<<10, 2<<29);
+BENCHMARK(GroupedExecution)->RangeMultiplier(2)->Range(1 << 13, 1 << 23)->ThreadPerCpu();
+BENCHMARK(BatchedExecution)->RangeMultiplier(2)->Range(1 << 13, 1 << 23)->ThreadPerCpu();
 }  // namespace internal
 }  // namespace arrow
