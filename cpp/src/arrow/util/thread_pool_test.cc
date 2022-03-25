@@ -423,6 +423,7 @@ TEST_F(TestThreadPool, SpawnSlow) {
   // This checks that Shutdown() waits for all tasks to finish
   auto pool = this->MakeThreadPool(2);
   SpawnAdds(pool.get(), 7, task_slow_add<int>{/*seconds=*/0.02});
+  SleepFor(600);
 }
 
 TEST_F(TestThreadPool, StressSpawnSlow) {
