@@ -31,26 +31,23 @@ namespace compute {
 class KeyCompare {
  public:
   // Returns a single 16-bit selection vector of rows that failed comparison.
-  // If there is input selection on the left, the resulting selection is a filtered image
-  // of input selection.
-  static void CompareColumnsToRows(uint32_t num_rows_to_compare,
-                                   const uint16_t* sel_left_maybe_null,
-                                   const uint32_t* left_to_right_map,
-                                   KeyEncoder::KeyEncoderContext* ctx,
-                                   uint32_t* out_num_rows,
-                                   uint16_t* out_sel_left_maybe_same,
-                                   const std::vector<KeyEncoder::KeyColumnArray>& cols,
-                                   const KeyEncoder::KeyRowArray& rows);
+  // If there is input selection on the left, the resulting selection is a
+  // filtered image of input selection.
+  static void CompareColumnsToRows(
+      uint32_t num_rows_to_compare, const uint16_t* sel_left_maybe_null,
+      const uint32_t* left_to_right_map, KeyEncoder::KeyEncoderContext* ctx,
+      uint32_t* out_num_rows, uint16_t* out_sel_left_maybe_same,
+      const std::vector<KeyEncoder::KeyColumnArray>& cols,
+      const KeyEncoder::KeyRowArray& rows, bool are_cols_in_encoding_order,
+      uint8_t* out_match_bitvector_maybe_null = NULLPTR);
 
  private:
   template <bool use_selection>
-  static void NullUpdateColumnToRow(uint32_t id_col, uint32_t num_rows_to_compare,
-                                    const uint16_t* sel_left_maybe_null,
-                                    const uint32_t* left_to_right_map,
-                                    KeyEncoder::KeyEncoderContext* ctx,
-                                    const KeyEncoder::KeyColumnArray& col,
-                                    const KeyEncoder::KeyRowArray& rows,
-                                    uint8_t* match_bytevector);
+  static void NullUpdateColumnToRow(
+      uint32_t id_col, uint32_t num_rows_to_compare, const uint16_t* sel_left_maybe_null,
+      const uint32_t* left_to_right_map, KeyEncoder::KeyEncoderContext* ctx,
+      const KeyEncoder::KeyColumnArray& col, const KeyEncoder::KeyRowArray& rows,
+      uint8_t* match_bytevector, bool are_cols_in_encoding_order);
 
   template <bool use_selection, class COMPARE_FN>
   static void CompareBinaryColumnToRowHelper(
@@ -63,6 +60,13 @@ class KeyCompare {
   template <bool use_selection>
   static void CompareBinaryColumnToRow(
       uint32_t offset_within_row, uint32_t num_rows_to_compare,
+      const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
+      KeyEncoder::KeyEncoderContext* ctx, const KeyEncoder::KeyColumnArray& col,
+      const KeyEncoder::KeyRowArray& rows, uint8_t* match_bytevector);
+
+  template <bool use_selection, bool is_first_varbinary_col>
+  static void CompareVarBinaryColumnToRowHelper(
+      uint32_t id_varlen_col, uint32_t first_row_to_compare, uint32_t num_rows_to_compare,
       const uint16_t* sel_left_maybe_null, const uint32_t* left_to_right_map,
       KeyEncoder::KeyEncoderContext* ctx, const KeyEncoder::KeyColumnArray& col,
       const KeyEncoder::KeyRowArray& rows, uint8_t* match_bytevector);
@@ -123,7 +127,7 @@ class KeyCompare {
       KeyEncoder::KeyEncoderContext* ctx, const KeyEncoder::KeyColumnArray& col,
       const KeyEncoder::KeyRowArray& rows, uint8_t* match_bytevector);
 
-  static void CompareVarBinaryColumnToRow_avx2(
+  static uint32_t CompareVarBinaryColumnToRow_avx2(
       bool use_selection, bool is_first_varbinary_col, uint32_t id_varlen_col,
       uint32_t num_rows_to_compare, const uint16_t* sel_left_maybe_null,
       const uint32_t* left_to_right_map, KeyEncoder::KeyEncoderContext* ctx,

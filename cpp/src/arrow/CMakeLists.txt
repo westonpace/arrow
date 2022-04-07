@@ -451,6 +451,7 @@ if(ARROW_COMPUTE)
   append_avx2_src(compute/exec/key_encode_avx2.cc)
   append_avx2_src(compute/exec/key_hash_avx2.cc)
   append_avx2_src(compute/exec/key_map_avx2.cc)
+  append_avx2_src(compute/exec/swiss_join_avx2.cc)
   append_avx2_src(compute/exec/util_avx2.cc)
 
   list(APPEND ARROW_TESTING_SRCS compute/exec/test_util.cc)
