@@ -1,46 +1,162 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+#include "arrow/compute/light_array.h"
 
-#include "arrow/compute/exec/swiss_join.h"
-#include <sys/stat.h>
-#include <algorithm>  // std::upper_bound
-#include <cstdio>
-#include <cstdlib>
-#include <mutex>
-#include "arrow/array/util.h"  // MakeArrayFromScalar
-#include "arrow/compute/exec/hash_join.h"
-#include "arrow/compute/exec/key_compare.h"
-#include "arrow/compute/exec/key_encode.h"
-#include "arrow/compute/exec/key_hash.h"
-#include "arrow/compute/exec/util.h"
-#include "arrow/util/bit_util.h"
+#include <type_traits>
+
 #include "arrow/util/bitmap_ops.h"
 
 namespace arrow {
 namespace compute {
+
+KeyColumnArray::KeyColumnArray(const KeyColumnMetadata& metadata, int64_t length,
+                               const uint8_t* buffer0, const uint8_t* buffer1,
+                               const uint8_t* buffer2, int bit_offset0, int bit_offset1) {
+  static_assert(std::is_pod<KeyColumnArray>::value,
+                "This class was intended to be a POD type");
+  metadata_ = metadata;
+  length_ = length;
+  buffers_[0] = buffer0;
+  buffers_[1] = buffer1;
+  buffers_[2] = buffer2;
+  mutable_buffers_[0] = mutable_buffers_[1] = mutable_buffers_[2] = nullptr;
+  bit_offset_[0] = bit_offset0;
+  bit_offset_[1] = bit_offset1;
+}
+
+KeyColumnArray::KeyColumnArray(const KeyColumnMetadata& metadata, int64_t length,
+                               uint8_t* buffer0, uint8_t* buffer1, uint8_t* buffer2,
+                               int bit_offset0, int bit_offset1) {
+  metadata_ = metadata;
+  length_ = length;
+  buffers_[0] = mutable_buffers_[0] = buffer0;
+  buffers_[1] = mutable_buffers_[1] = buffer1;
+  buffers_[2] = mutable_buffers_[2] = buffer2;
+  bit_offset_[0] = bit_offset0;
+  bit_offset_[1] = bit_offset1;
+}
+
+KeyColumnArray KeyColumnArray::WithBufferFrom(const KeyColumnArray& other,
+                                              int buffer_id_to_replace) const {
+  KeyColumnArray copy = *this;
+  copy.mutable_buffers_[buffer_id_to_replace] =
+      other.mutable_buffers_[buffer_id_to_replace];
+  copy.buffers_[buffer_id_to_replace] = other.buffers_[buffer_id_to_replace];
+  if (buffer_id_to_replace < max_buffers_ - 1) {
+    copy.bit_offset_[buffer_id_to_replace] = other.bit_offset_[buffer_id_to_replace];
+  }
+  return copy;
+}
+
+KeyColumnArray KeyColumnArray::WithMetadata(const KeyColumnMetadata& metadata) const {
+  KeyColumnArray copy = *this;
+  copy.metadata_ = metadata;
+  return copy;
+}
+
+KeyColumnArray KeyColumnArray::Slice(int64_t offset, int64_t length) const {
+  KeyColumnArray sliced;
+  sliced.metadata_ = metadata_;
+  sliced.length_ = length;
+  uint32_t fixed_size =
+      !metadata_.is_fixed_length ? sizeof(uint32_t) : metadata_.fixed_length;
+
+  sliced.buffers_[0] =
+      buffers_[0] ? buffers_[0] + (bit_offset_[0] + offset) / 8 : nullptr;
+  sliced.mutable_buffers_[0] =
+      mutable_buffers_[0] ? mutable_buffers_[0] + (bit_offset_[0] + offset) / 8 : nullptr;
+  sliced.bit_offset_[0] = (bit_offset_[0] + offset) % 8;
+
+  if (fixed_size == 0 && !metadata_.is_null_type) {
+    sliced.buffers_[1] =
+        buffers_[1] ? buffers_[1] + (bit_offset_[1] + offset) / 8 : nullptr;
+    sliced.mutable_buffers_[1] = mutable_buffers_[1]
+                                     ? mutable_buffers_[1] + (bit_offset_[1] + offset) / 8
+                                     : nullptr;
+    sliced.bit_offset_[1] = (bit_offset_[1] + offset) % 8;
+  } else {
+    sliced.buffers_[1] = buffers_[1] ? buffers_[1] + offset * fixed_size : nullptr;
+    sliced.mutable_buffers_[1] =
+        mutable_buffers_[1] ? mutable_buffers_[1] + offset * fixed_size : nullptr;
+    sliced.bit_offset_[1] = 0;
+  }
+
+  sliced.buffers_[2] = buffers_[2];
+  sliced.mutable_buffers_[2] = mutable_buffers_[2];
+  return sliced;
+}
+
+KeyColumnMetadata ColumnMetadataFromDataType(const std::shared_ptr<DataType>& type) {
+  if (type->id() == Type::DICTIONARY) {
+    auto bit_width =
+        arrow::internal::checked_cast<const FixedWidthType&>(*type).bit_width();
+    ARROW_DCHECK(bit_width % 8 == 0);
+    return KeyColumnMetadata(true, bit_width / 8);
+  }
+  if (type->id() == Type::BOOL) {
+    return KeyColumnMetadata(true, 0);
+  }
+  if (is_fixed_width(type->id())) {
+    return KeyColumnMetadata(
+        true,
+        arrow::internal::checked_cast<const FixedWidthType&>(*type).bit_width() / 8);
+  }
+  if (is_binary_like(type->id())) {
+    return KeyColumnMetadata(false, sizeof(uint32_t));
+  }
+  // Should not reach this point, caller attempted to create a KeyColumnArray from an
+  // invalid type
+  ARROW_DCHECK(false);
+  return KeyColumnMetadata(true, sizeof(int));
+}
+
+KeyColumnArray ColumnArrayFromArrayData(const std::shared_ptr<ArrayData>& array_data,
+                                        int start_row, int num_rows) {
+  KeyColumnArray column_array = KeyColumnArray(
+      ColumnMetadataFromDataType(array_data->type),
+      array_data->offset + start_row + num_rows,
+      array_data->buffers[0] != NULLPTR ? array_data->buffers[0]->data() : nullptr,
+      array_data->buffers[1]->data(),
+      (array_data->buffers.size() > 2 && array_data->buffers[2] != NULLPTR)
+          ? array_data->buffers[2]->data()
+          : nullptr);
+  return column_array.Slice(array_data->offset + start_row, num_rows);
+}
+
+void ColumnMetadatasFromExecBatch(const ExecBatch& batch,
+                                  std::vector<KeyColumnMetadata>* column_metadatas) {
+  int num_columns = static_cast<int>(batch.values.size());
+  column_metadatas->resize(num_columns);
+  for (int i = 0; i < num_columns; ++i) {
+    const Datum& data = batch.values[i];
+    ARROW_DCHECK(data.is_array());
+    const std::shared_ptr<ArrayData>& array_data = data.array();
+    (*column_metadatas)[i] = ColumnMetadataFromDataType(array_data->type);
+  }
+}
+
+void ColumnArraysFromExecBatch(const ExecBatch& batch, int start_row, int num_rows,
+                               std::vector<KeyColumnArray>* column_arrays) {
+  int num_columns = static_cast<int>(batch.values.size());
+  column_arrays->resize(num_columns);
+  for (int i = 0; i < num_columns; ++i) {
+    const Datum& data = batch.values[i];
+    ARROW_DCHECK(data.is_array());
+    const std::shared_ptr<ArrayData>& array_data = data.array();
+    (*column_arrays)[i] = ColumnArrayFromArrayData(array_data, start_row, num_rows);
+  }
+}
+
+void ColumnArraysFromExecBatch(const ExecBatch& batch,
+                               std::vector<KeyColumnArray>* column_arrays) {
+  ColumnArraysFromExecBatch(batch, 0, static_cast<int>(batch.length), column_arrays);
+}
 
 void ResizableArrayData::Init(const std::shared_ptr<DataType>& data_type,
                               MemoryPool* pool, int log_num_rows_min) {
 #ifndef NDEBUG
   if (num_rows_allocated_ > 0) {
     ARROW_DCHECK(data_type_ != NULLPTR);
-    KeyEncoder::KeyColumnMetadata metadata_before =
-        ColumnMetadataFromDataType(data_type_);
-    KeyEncoder::KeyColumnMetadata metadata_after = ColumnMetadataFromDataType(data_type);
+    KeyColumnMetadata metadata_before = ColumnMetadataFromDataType(data_type_);
+    KeyColumnMetadata metadata_after = ColumnMetadataFromDataType(data_type);
     ARROW_DCHECK(metadata_before.is_fixed_length == metadata_after.is_fixed_length &&
                  metadata_before.fixed_length == metadata_after.fixed_length);
   }
@@ -74,7 +190,7 @@ Status ResizableArrayData::ResizeFixedLengthBuffers(int num_rows_new) {
     num_rows_allocated_new *= 2;
   }
 
-  KeyEncoder::KeyColumnMetadata column_metadata = ColumnMetadataFromDataType(data_type_);
+  KeyColumnMetadata column_metadata = ColumnMetadataFromDataType(data_type_);
 
   if (fixed_len_buf_ == NULLPTR) {
     ARROW_DCHECK(non_null_buf_ == NULLPTR && var_len_buf_ == NULLPTR);
@@ -135,7 +251,7 @@ Status ResizableArrayData::ResizeFixedLengthBuffers(int num_rows_new) {
 }
 
 Status ResizableArrayData::ResizeVaryingLengthBuffer() {
-  KeyEncoder::KeyColumnMetadata column_metadata;
+  KeyColumnMetadata column_metadata;
   column_metadata = ColumnMetadataFromDataType(data_type_);
 
   if (!column_metadata.is_fixed_length) {
@@ -155,16 +271,15 @@ Status ResizableArrayData::ResizeVaryingLengthBuffer() {
   return Status::OK();
 }
 
-KeyEncoder::KeyColumnArray ResizableArrayData::column_array() const {
-  KeyEncoder::KeyColumnMetadata column_metadata;
+KeyColumnArray ResizableArrayData::column_array() const {
+  KeyColumnMetadata column_metadata;
   column_metadata = ColumnMetadataFromDataType(data_type_);
-  return KeyEncoder::KeyColumnArray(
-      column_metadata, num_rows_, non_null_buf_->mutable_data(),
-      fixed_len_buf_->mutable_data(), var_len_buf_->mutable_data());
+  return KeyColumnArray(column_metadata, num_rows_, non_null_buf_->mutable_data(),
+                        fixed_len_buf_->mutable_data(), var_len_buf_->mutable_data());
 }
 
 std::shared_ptr<ArrayData> ResizableArrayData::array_data() const {
-  KeyEncoder::KeyColumnMetadata column_metadata;
+  KeyColumnMetadata column_metadata;
   column_metadata = ColumnMetadataFromDataType(data_type_);
 
   auto valid_count = arrow::internal::CountSetBits(non_null_buf_->data(), /*offset=*/0,
@@ -191,8 +306,7 @@ int ExecBatchBuilder::NumRowsToSkip(const std::shared_ptr<ArrayData>& column,
   }
 #endif
 
-  KeyEncoder::KeyColumnMetadata column_metadata =
-      ColumnMetadataFromDataType(column->type);
+  KeyColumnMetadata column_metadata = ColumnMetadataFromDataType(column->type);
 
   int num_rows_left = num_rows;
   int num_bytes_skipped = 0;
@@ -273,7 +387,7 @@ void ExecBatchBuilder::CollectBits(const uint8_t* input_bits, int64_t input_bits
 template <class PROCESS_VALUE_FN>
 void ExecBatchBuilder::Visit(const std::shared_ptr<ArrayData>& column, int num_rows,
                              const uint16_t* row_ids, PROCESS_VALUE_FN process_value_fn) {
-  KeyEncoder::KeyColumnMetadata metadata = ColumnMetadataFromDataType(column->type);
+  KeyColumnMetadata metadata = ColumnMetadataFromDataType(column->type);
 
   if (!metadata.is_fixed_length) {
     const uint8_t* ptr_base = column->buffers[2]->data();
@@ -298,19 +412,18 @@ void ExecBatchBuilder::Visit(const std::shared_ptr<ArrayData>& column, int num_r
 }
 
 Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source,
-                                        ResizableArrayData& target,
+                                        ResizableArrayData* target,
                                         int num_rows_to_append, const uint16_t* row_ids,
                                         MemoryPool* pool) {
-  int num_rows_before = target.num_rows();
+  int num_rows_before = target->num_rows();
   ARROW_DCHECK(num_rows_before >= 0);
   int num_rows_after = num_rows_before + num_rows_to_append;
-  if (target.num_rows() == 0) {
-    target.Init(source->type, pool, kLogNumRows);
+  if (target->num_rows() == 0) {
+    target->Init(source->type, pool, kLogNumRows);
   }
-  RETURN_NOT_OK(target.ResizeFixedLengthBuffers(num_rows_after));
+  RETURN_NOT_OK(target->ResizeFixedLengthBuffers(num_rows_after));
 
-  KeyEncoder::KeyColumnMetadata column_metadata =
-      ColumnMetadataFromDataType(source->type);
+  KeyColumnMetadata column_metadata = ColumnMetadataFromDataType(source->type);
 
   if (column_metadata.is_fixed_length) {
     // Fixed length column
@@ -318,35 +431,38 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
     uint32_t fixed_length = column_metadata.fixed_length;
     switch (fixed_length) {
       case 0:
-        CollectBits(source->buffers[1]->data(), source->offset, target.mutable_data(1),
+        CollectBits(source->buffers[1]->data(), source->offset, target->mutable_data(1),
                     num_rows_before, num_rows_to_append, row_ids);
         break;
       case 1:
         Visit(source, num_rows_to_append, row_ids,
               [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
-                target.mutable_data(1)[num_rows_before + i] = *ptr;
+                target->mutable_data(1)[num_rows_before + i] = *ptr;
               });
         break;
       case 2:
-        Visit(source, num_rows_to_append, row_ids,
-              [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
-                reinterpret_cast<uint16_t*>(target.mutable_data(1))[num_rows_before + i] =
-                    *reinterpret_cast<const uint16_t*>(ptr);
-              });
+        Visit(
+            source, num_rows_to_append, row_ids,
+            [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
+              reinterpret_cast<uint16_t*>(target->mutable_data(1))[num_rows_before + i] =
+                  *reinterpret_cast<const uint16_t*>(ptr);
+            });
         break;
       case 4:
-        Visit(source, num_rows_to_append, row_ids,
-              [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
-                reinterpret_cast<uint32_t*>(target.mutable_data(1))[num_rows_before + i] =
-                    *reinterpret_cast<const uint32_t*>(ptr);
-              });
+        Visit(
+            source, num_rows_to_append, row_ids,
+            [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
+              reinterpret_cast<uint32_t*>(target->mutable_data(1))[num_rows_before + i] =
+                  *reinterpret_cast<const uint32_t*>(ptr);
+            });
         break;
       case 8:
-        Visit(source, num_rows_to_append, row_ids,
-              [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
-                reinterpret_cast<uint64_t*>(target.mutable_data(1))[num_rows_before + i] =
-                    *reinterpret_cast<const uint64_t*>(ptr);
-              });
+        Visit(
+            source, num_rows_to_append, row_ids,
+            [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
+              reinterpret_cast<uint64_t*>(target->mutable_data(1))[num_rows_before + i] =
+                  *reinterpret_cast<const uint64_t*>(ptr);
+            });
         break;
       default: {
         int num_rows_to_process =
@@ -355,7 +471,7 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
         Visit(source, num_rows_to_process, row_ids,
               [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
                 uint64_t* dst = reinterpret_cast<uint64_t*>(
-                    target.mutable_data(1) +
+                    target->mutable_data(1) +
                     static_cast<int64_t>(num_bytes) * (num_rows_before + i));
                 const uint64_t* src = reinterpret_cast<const uint64_t*>(ptr);
                 for (uint32_t word_id = 0;
@@ -369,7 +485,7 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
                 row_ids + num_rows_to_process,
                 [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
                   uint64_t* dst = reinterpret_cast<uint64_t*>(
-                      target.mutable_data(1) +
+                      target->mutable_data(1) +
                       static_cast<int64_t>(num_bytes) *
                           (num_rows_before + num_rows_to_process + i));
                   const uint64_t* src = reinterpret_cast<const uint64_t*>(ptr);
@@ -384,7 +500,7 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
 
     // Step 1: calculate target offsets
     //
-    uint32_t* offsets = reinterpret_cast<uint32_t*>(target.mutable_data(1));
+    uint32_t* offsets = reinterpret_cast<uint32_t*>(target->mutable_data(1));
     uint32_t sum = num_rows_before == 0 ? 0 : offsets[num_rows_before];
     Visit(source, num_rows_to_append, row_ids,
           [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
@@ -399,7 +515,7 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
 
     // Step 2: resize output buffers
     //
-    RETURN_NOT_OK(target.ResizeVaryingLengthBuffer());
+    RETURN_NOT_OK(target->ResizeVaryingLengthBuffer());
 
     // Step 3: copy varying-length data
     //
@@ -408,7 +524,7 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
         NumRowsToSkip(source, num_rows_to_append, row_ids, sizeof(uint64_t));
     Visit(source, num_rows_to_process, row_ids,
           [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
-            uint64_t* dst = reinterpret_cast<uint64_t*>(target.mutable_data(2) +
+            uint64_t* dst = reinterpret_cast<uint64_t*>(target->mutable_data(2) +
                                                         offsets[num_rows_before + i]);
             const uint64_t* src = reinterpret_cast<const uint64_t*>(ptr);
             for (uint32_t word_id = 0;
@@ -419,7 +535,7 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
     Visit(source, num_rows_to_append - num_rows_to_process, row_ids + num_rows_to_process,
           [&](int i, const uint8_t* ptr, uint32_t num_bytes) {
             uint64_t* dst = reinterpret_cast<uint64_t*>(
-                target.mutable_data(2) +
+                target->mutable_data(2) +
                 offsets[num_rows_before + num_rows_to_process + i]);
             const uint64_t* src = reinterpret_cast<const uint64_t*>(ptr);
             memcpy(dst, src, num_bytes);
@@ -429,14 +545,14 @@ Status ExecBatchBuilder::AppendSelected(const std::shared_ptr<ArrayData>& source
   // Process nulls
   //
   if (source->buffers[0] == NULLPTR) {
-    uint8_t* dst = target.mutable_data(0);
+    uint8_t* dst = target->mutable_data(0);
     dst[num_rows_before / 8] |= static_cast<uint8_t>(~0ULL << (num_rows_before & 7));
     for (int i = num_rows_before / 8 + 1;
          i < bit_util::BytesForBits(num_rows_before + num_rows_to_append); ++i) {
       dst[i] = 0xff;
     }
   } else {
-    CollectBits(source->buffers[0]->data(), source->offset, target.mutable_data(0),
+    CollectBits(source->buffers[0]->data(), source->offset, target->mutable_data(0),
                 num_rows_before, num_rows_to_append, row_ids);
   }
 
@@ -453,7 +569,7 @@ Status ExecBatchBuilder::AppendNulls(const std::shared_ptr<DataType>& type,
   }
   RETURN_NOT_OK(target.ResizeFixedLengthBuffers(num_rows_after));
 
-  KeyEncoder::KeyColumnMetadata column_metadata = ColumnMetadataFromDataType(type);
+  KeyColumnMetadata column_metadata = ColumnMetadataFromDataType(type);
 
   // Process fixed length buffer
   //
@@ -514,7 +630,7 @@ Status ExecBatchBuilder::AppendSelected(MemoryPool* pool, const ExecBatch& batch
     ARROW_DCHECK(data.is_array());
     const std::shared_ptr<ArrayData>& array_data = data.array();
     RETURN_NOT_OK(
-        AppendSelected(array_data, values_[i], num_rows_to_append, row_ids, pool));
+        AppendSelected(array_data, &values_[i], num_rows_to_append, row_ids, pool));
   }
 
   return Status::OK();
