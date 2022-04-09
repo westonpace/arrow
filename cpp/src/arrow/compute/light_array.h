@@ -24,7 +24,7 @@
 #include "arrow/type.h"
 #include "arrow/util/logging.h"
 
-/// This file contains lightweight conatiners for Arrow buffers.  These containers
+/// This file contains lightweight containers for Arrow buffers.  These containers
 /// makes compromises in terms of strong ownership and the range of data types supported
 /// in order to gain performance and reduced overhead.
 
@@ -61,7 +61,7 @@ struct KeyColumnMetadata {
   uint32_t fixed_length;
 };
 
-/// \brief A lightweight view into an a "key" array
+/// \brief A lightweight view into a "key" array
 ///
 /// A "key" column is a non-nested, non-union column \see KeyColumnMetadata
 ///
@@ -247,8 +247,8 @@ class ResizableArrayData {
   /// \brief A raw pointer to the requested buffer
   ///
   /// If i is 0 then this returns the validity buffer
-  /// If i is 1 then this returns the buffer used for values (if this is a fixed)
-  ///           length data type or offsets (if this is a variable binary type)
+  /// If i is 1 then this returns the buffer used for values (if this is a fixed
+  ///           length data type) or offsets (if this is a variable binary type)
   /// If i is 2 then this returns the buffer used for variable length binary data
   uint8_t* mutable_data(int i) {
     return i == 0   ? non_null_buf_->mutable_data()
@@ -271,7 +271,7 @@ class ResizableArrayData {
 
 /// \brief A builder to concatenate batches of data into a larger batch
 ///
-/// Will only store 1 << 15 rows
+/// Will only store num_rows_max() rows
 class ExecBatchBuilder {
  public:
   /// \brief Add rows from `source` into `target` column
@@ -282,7 +282,7 @@ class ExecBatchBuilder {
                                ResizableArrayData* target, int num_rows_to_append,
                                const uint16_t* row_ids, MemoryPool* pool);
 
-  /// \brief Add nulls from `source` into `target` column
+  /// \brief Add nulls into `target` column
   ///
   /// If `target` is uninitialized or cleared it will be initialized to use
   /// the given pool.
@@ -292,8 +292,8 @@ class ExecBatchBuilder {
 
   /// \brief Add selected rows from `batch`
   ///
-  /// If `col_ids` is null then `num_cols` should equal batch.num_values() and all
-  /// columns will be appended.
+  /// If `col_ids` is null then `num_cols` should less than batch.num_values() and
+  /// the first `num_cols` columns of batch will be appended.
   ///
   /// All columns in `batch` must have array shape
   Status AppendSelected(MemoryPool* pool, const ExecBatch& batch, int num_rows_to_append,
@@ -303,8 +303,9 @@ class ExecBatchBuilder {
   /// \brief Add selected rows from `batch` and store how many were added in
   ///        `num_appended`
   ///
-  /// `num_appended` may be smaller than `num_rows_to_append` if the row limit (1 << 15)
-  /// is reached and the caller should check this and handle the remaining rows.
+  /// `num_appended` may be smaller than `num_rows_to_append` if the row limit
+  /// (num_rows_max()) is reached and the caller should check this and handle the
+  /// remaining rows.
   ///
   /// If `col_ids` is null then `num_cols` should equal batch.num_values() and all
   /// columns will be appended.
@@ -321,8 +322,9 @@ class ExecBatchBuilder {
 
   /// \brief Add all-null rows and store how many were added in `num_appended`
   ///
-  /// `num_appended` may be smaller than `num_rows_to_append` if the row limit (1 << 15)
-  /// is reached and the caller should check this and handle the remaining rows.
+  /// `num_appended` may be smaller than `num_rows_to_append` if the row limit
+  /// (num_rows_max()) is reached and the caller should check this and handle the
+  /// remaining rows.
   Status AppendNulls(MemoryPool* pool,
                      const std::vector<std::shared_ptr<DataType>>& types,
                      int num_rows_to_append, int* num_appended);
