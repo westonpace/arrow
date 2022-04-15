@@ -102,7 +102,7 @@ void VerifyStringAndNumber_Single(const util::string_view& row,
   const char* num_str_end = row.data() + row.size();
   int64_t num = 0;
   // Parse the number out; note that it can be padded with NUL chars at the end
-  for (; *num_str && num_str < num_str_end; num_str++) {
+  for (; num_str < num_str_end && *num_str; num_str++) {
     num *= 10;
     ASSERT_TRUE(std::isdigit(*num_str)) << row << ", prefix=" << prefix << ", i=" << i;
     num += *num_str - '0';
@@ -306,7 +306,7 @@ void VerifyOneOf(const Datum& d, int32_t byte_width,
   for (int64_t i = 0; i < length; i++) {
     const char* row = col + i * byte_width;
     int32_t row_len = 0;
-    while (row[row_len] && row_len < byte_width) row_len++;
+    while (row_len < byte_width && row[row_len]) row_len++;
     util::string_view view(row, row_len);
     ASSERT_TRUE(possibilities.find(view) != possibilities.end())
         << view << " is not a valid string.";
@@ -550,8 +550,14 @@ void VerifyLineitem(const std::vector<ExecBatch>& batches,
 }
 
 TEST(TpchNode, Lineitem) {
+#ifdef ARROW_VALGRIND
+  ASSERT_OK_AND_ASSIGN(auto res,
+                       GenerateTable(&TpchGen::Lineitem, kDefaultScaleFactor / 10.0));
+  VerifyLineitem(res, kDefaultScaleFactor / 10.0);
+#else
   ASSERT_OK_AND_ASSIGN(auto res, GenerateTable(&TpchGen::Lineitem));
   VerifyLineitem(res);
+#endif
 }
 
 void VerifyNation(const std::vector<ExecBatch>& batches,

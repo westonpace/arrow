@@ -266,7 +266,11 @@ class TpchPseudotext {
   std::mutex text_guard_;
   std::unique_ptr<Buffer> text_;
   static constexpr int64_t kChunkSize = 8192;
+#ifdef ARROW_VALGRIND
+  static constexpr int64_t kTextBytes = 10 * 1024 * 1024;  // 10 MB
+#else
   static constexpr int64_t kTextBytes = 300 * 1024 * 1024;  // 300 MB
+#endif
 };
 
 static TpchPseudotext g_text;
@@ -1088,12 +1092,13 @@ class PartAndPartSupplierGenerator {
     return Status::OK();
   }
 
-  Status AllocatePartSuppBatch(size_t thread_index, size_t ibatch, int column) {
+  Status AllocatePartSuppBatch(size_t thread_index, size_t ibatch, int column,
+                               int batch_size) {
     ThreadLocalData& tld = thread_local_data_[thread_index];
     int32_t byte_width = arrow::internal::GetByteWidth(*kPartsuppTypes[column]);
     ARROW_ASSIGN_OR_RAISE(std::unique_ptr<Buffer> buff,
-                          AllocateBuffer(batch_size_ * byte_width));
-    ArrayData ad(kPartsuppTypes[column], batch_size_, {nullptr, std::move(buff)});
+                          AllocateBuffer(batch_size * byte_width));
+    ArrayData ad(kPartsuppTypes[column], batch_size, {nullptr, std::move(buff)});
     tld.partsupp[ibatch][column] = std::move(ad);
     return Status::OK();
   }
@@ -1111,13 +1116,14 @@ class PartAndPartSupplierGenerator {
       int64_t ipart = 0;
       int64_t ps_to_generate = kPartSuppRowsPerPart * tld.part_to_generate;
       for (int64_t irow = 0; irow < ps_to_generate; ibatch++) {
-        RETURN_NOT_OK(AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_PARTKEY));
+        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
+        RETURN_NOT_OK(
+            AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_PARTKEY, next_run));
         int32_t* ps_partkey =
             reinterpret_cast<int32_t*>(tld.partsupp[ibatch][PARTSUPP::PS_PARTKEY]
                                            .array()
                                            ->buffers[1]
                                            ->mutable_data());
-        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
 
         int64_t batch_offset = 0;
         for (int64_t irun = 0; irun < next_run;) {
@@ -1130,7 +1136,6 @@ class PartAndPartSupplierGenerator {
           }
         }
         irow += next_run;
-        tld.partsupp[ibatch][PARTSUPP::PS_PARTKEY].array()->length = batch_offset;
       }
     }
     return Status::OK();
@@ -1150,13 +1155,14 @@ class PartAndPartSupplierGenerator {
       int64_t ps_to_generate = kPartSuppRowsPerPart * tld.part_to_generate;
       const int32_t S = static_cast<int32_t>(scale_factor_ * 10000);
       for (int64_t irow = 0; irow < ps_to_generate; ibatch++) {
-        RETURN_NOT_OK(AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_SUPPKEY));
+        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
+        RETURN_NOT_OK(
+            AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_SUPPKEY, next_run));
         int32_t* ps_suppkey =
             reinterpret_cast<int32_t*>(tld.partsupp[ibatch][PARTSUPP::PS_SUPPKEY]
                                            .array()
                                            ->buffers[1]
                                            ->mutable_data());
-        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
 
         int64_t batch_offset = 0;
         for (int64_t irun = 0; irun < next_run;) {
@@ -1174,7 +1180,6 @@ class PartAndPartSupplierGenerator {
           }
         }
         irow += next_run;
-        tld.partsupp[ibatch][PARTSUPP::PS_SUPPKEY].array()->length = batch_offset;
       }
     }
     return Status::OK();
@@ -1188,16 +1193,16 @@ class PartAndPartSupplierGenerator {
       int64_t ps_to_generate = kPartSuppRowsPerPart * tld.part_to_generate;
       int64_t ibatch = 0;
       for (int64_t irow = 0; irow < ps_to_generate; ibatch++) {
-        RETURN_NOT_OK(AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_AVAILQTY));
+        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
+        RETURN_NOT_OK(
+            AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_AVAILQTY, next_run));
         int32_t* ps_availqty =
             reinterpret_cast<int32_t*>(tld.partsupp[ibatch][PARTSUPP::PS_AVAILQTY]
                                            .array()
                                            ->buffers[1]
                                            ->mutable_data());
-        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
         for (int64_t irun = 0; irun < next_run; irun++) ps_availqty[irun] = dist(tld.rng);
 
-        tld.partsupp[ibatch][PARTSUPP::PS_AVAILQTY].array()->length = next_run;
         irow += next_run;
       }
     }
@@ -1212,18 +1217,17 @@ class PartAndPartSupplierGenerator {
       int64_t ps_to_generate = kPartSuppRowsPerPart * tld.part_to_generate;
       int64_t ibatch = 0;
       for (int64_t irow = 0; irow < ps_to_generate; ibatch++) {
-        RETURN_NOT_OK(
-            AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_SUPPLYCOST));
+        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
+        RETURN_NOT_OK(AllocatePartSuppBatch(thread_index, ibatch, PARTSUPP::PS_SUPPLYCOST,
+                                            next_run));
         Decimal128* ps_supplycost =
             reinterpret_cast<Decimal128*>(tld.partsupp[ibatch][PARTSUPP::PS_SUPPLYCOST]
                                               .array()
                                               ->buffers[1]
                                               ->mutable_data());
-        int64_t next_run = std::min(batch_size_, ps_to_generate - irow);
         for (int64_t irun = 0; irun < next_run; irun++)
           ps_supplycost[irun] = {dist(tld.rng)};
 
-        tld.partsupp[ibatch][PARTSUPP::PS_SUPPLYCOST].array()->length = next_run;
         irow += next_run;
       }
     }
@@ -1773,14 +1777,15 @@ class OrdersAndLineItemGenerator {
   }
 
   Status AllocateLineItemBufferIfNeeded(size_t thread_index, size_t ibatch, int column,
-                                        size_t& out_batch_offset) {
+                                        int64_t max_rows, size_t& out_batch_offset) {
     ThreadLocalData& tld = thread_local_data_[thread_index];
     if (tld.lineitem[ibatch][column].kind() == Datum::NONE) {
+      int64_t rows_to_allocate = std::min(max_rows, batch_size_);
       ARROW_DCHECK(ibatch != 0 || tld.first_batch_offset == 0);
       int32_t byte_width = arrow::internal::GetByteWidth(*kLineitemTypes[column]);
       ARROW_ASSIGN_OR_RAISE(std::unique_ptr<Buffer> buff,
-                            AllocateBuffer(batch_size_ * byte_width));
-      ArrayData ad(kLineitemTypes[column], batch_size_, {nullptr, std::move(buff)});
+                            AllocateBuffer(rows_to_allocate * byte_width));
+      ArrayData ad(kLineitemTypes[column], rows_to_allocate, {nullptr, std::move(buff)});
       tld.lineitem[ibatch][column] = std::move(ad);
       out_batch_offset = 0;
     }
@@ -1802,14 +1807,13 @@ class OrdersAndLineItemGenerator {
       int32_t iline = 0;
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_ORDERKEY, batch_offset));
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_ORDERKEY, tld.lineitem_to_generate - irow,
+            batch_offset));
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_ORDERKEY].array();
         int32_t* l_linenumber =
-            reinterpret_cast<int32_t*>(tld.lineitem[ibatch][LINEITEM::L_ORDERKEY]
-                                           .array()
-                                           ->buffers[1]
-                                           ->mutable_data());
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+            reinterpret_cast<int32_t*>(batch->buffers[1]->mutable_data());
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         for (int64_t irun = 0; irun < next_run;) {
           for (; iline < tld.items_per_order[iorder] && irun < next_run; iline++, irun++)
@@ -1820,8 +1824,6 @@ class OrdersAndLineItemGenerator {
           }
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_ORDERKEY].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -1837,9 +1839,11 @@ class OrdersAndLineItemGenerator {
       std::uniform_int_distribution<int32_t> dist(1, max_partkey);
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_PARTKEY, batch_offset));
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_PARTKEY, tld.lineitem_to_generate - irow,
+            batch_offset));
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_PARTKEY].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         int32_t* l_partkey =
             reinterpret_cast<int32_t*>(tld.lineitem[ibatch][LINEITEM::L_PARTKEY]
@@ -1850,8 +1854,6 @@ class OrdersAndLineItemGenerator {
           l_partkey[batch_offset] = dist(tld.rng);
 
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_PARTKEY].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -1868,9 +1870,11 @@ class OrdersAndLineItemGenerator {
       const int32_t S = static_cast<int32_t>(scale_factor_ * 10000);
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset = 0;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_SUPPKEY, batch_offset));
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_SUPPKEY, tld.lineitem_to_generate - irow,
+            batch_offset));
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_SUPPKEY].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         int32_t* l_suppkey =
             reinterpret_cast<int32_t*>(tld.lineitem[ibatch][LINEITEM::L_SUPPKEY]
@@ -1888,8 +1892,6 @@ class OrdersAndLineItemGenerator {
               (partkey + (supplier * ((S / 4) + (partkey - 1) / S))) % S + 1;
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_SUPPKEY].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -1905,8 +1907,10 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_LINENUMBER, batch_offset));
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+            thread_index, ibatch, LINEITEM::L_LINENUMBER, tld.lineitem_to_generate - irow,
+            batch_offset));
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_LINENUMBER].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         int32_t* l_linenumber =
             reinterpret_cast<int32_t*>(tld.lineitem[ibatch][LINEITEM::L_LINENUMBER]
@@ -1925,8 +1929,6 @@ class OrdersAndLineItemGenerator {
           }
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_LINENUMBER].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -1941,9 +1943,11 @@ class OrdersAndLineItemGenerator {
       std::uniform_int_distribution<int64_t> dist(1, 50);
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_QUANTITY, batch_offset));
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_QUANTITY, tld.lineitem_to_generate - irow,
+            batch_offset));
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_QUANTITY].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         Decimal128* l_quantity =
             reinterpret_cast<Decimal128*>(tld.lineitem[ibatch][LINEITEM::L_QUANTITY]
@@ -1957,8 +1961,6 @@ class OrdersAndLineItemGenerator {
           l_quantity[batch_offset++] = {quantity};
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_QUANTITY].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -1974,9 +1976,11 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_EXTENDEDPRICE, batch_offset));
+            thread_index, ibatch, LINEITEM::L_EXTENDEDPRICE,
+            tld.lineitem_to_generate - irow, batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_EXTENDEDPRICE].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         const int32_t* l_partkey = reinterpret_cast<const int32_t*>(
             tld.lineitem[ibatch][LINEITEM::L_PARTKEY].array()->buffers[1]->data());
@@ -2001,8 +2005,6 @@ class OrdersAndLineItemGenerator {
           l_extendedprice[batch_offset] = {extended_price};
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_EXTENDEDPRICE].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2016,10 +2018,12 @@ class OrdersAndLineItemGenerator {
       std::uniform_int_distribution<int32_t> dist(0, 10);
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_DISCOUNT, batch_offset));
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_DISCOUNT, tld.lineitem_to_generate - irow,
+            batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_DISCOUNT].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         Decimal128* l_discount =
             reinterpret_cast<Decimal128*>(tld.lineitem[ibatch][LINEITEM::L_DISCOUNT]
@@ -2030,8 +2034,6 @@ class OrdersAndLineItemGenerator {
         for (int64_t i = 0; i < next_run; i++, batch_offset++)
           l_discount[batch_offset] = {dist(tld.rng)};
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_DISCOUNT].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2045,9 +2047,12 @@ class OrdersAndLineItemGenerator {
       std::uniform_int_distribution<int32_t> dist(0, 8);
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_TAX, batch_offset));
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_TAX, tld.lineitem_to_generate - irow,
+            batch_offset));
+
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_TAX].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         Decimal128* l_tax = reinterpret_cast<Decimal128*>(
             tld.lineitem[ibatch][LINEITEM::L_TAX].array()->buffers[1]->mutable_data());
@@ -2055,8 +2060,6 @@ class OrdersAndLineItemGenerator {
         for (int64_t i = 0; i < next_run; i++, batch_offset++)
           l_tax[batch_offset] = {dist(tld.rng)};
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_TAX].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2072,9 +2075,11 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_RETURNFLAG, batch_offset));
+            thread_index, ibatch, LINEITEM::L_RETURNFLAG, tld.lineitem_to_generate - irow,
+            batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_RETURNFLAG].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         char* l_returnflag =
             reinterpret_cast<char*>(tld.lineitem[ibatch][LINEITEM::L_RETURNFLAG]
@@ -2096,8 +2101,6 @@ class OrdersAndLineItemGenerator {
           }
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_RETURNFLAG].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2112,9 +2115,11 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_LINESTATUS, batch_offset));
+            thread_index, ibatch, LINEITEM::L_LINESTATUS, tld.lineitem_to_generate - irow,
+            batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_LINESTATUS].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         char* l_linestatus =
             reinterpret_cast<char*>(tld.lineitem[ibatch][LINEITEM::L_LINESTATUS]
@@ -2134,8 +2139,6 @@ class OrdersAndLineItemGenerator {
             l_linestatus[batch_offset] = 'F';
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_LINESTATUS].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2154,9 +2157,11 @@ class OrdersAndLineItemGenerator {
       int32_t iline = 0;
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_SHIPDATE, batch_offset));
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_SHIPDATE, tld.lineitem_to_generate - irow,
+            batch_offset));
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_SHIPDATE].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         uint32_t* l_shipdate =
             reinterpret_cast<uint32_t*>(tld.lineitem[ibatch][LINEITEM::L_SHIPDATE]
@@ -2172,8 +2177,6 @@ class OrdersAndLineItemGenerator {
           }
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_SHIPDATE].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2192,9 +2195,11 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_COMMITDATE, batch_offset));
+            thread_index, ibatch, LINEITEM::L_COMMITDATE, tld.lineitem_to_generate - irow,
+            batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_COMMITDATE].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         uint32_t* l_commitdate =
             reinterpret_cast<uint32_t*>(tld.lineitem[ibatch][LINEITEM::L_COMMITDATE]
@@ -2210,8 +2215,6 @@ class OrdersAndLineItemGenerator {
           }
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_COMMITDATE].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2227,9 +2230,11 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_RECEIPTDATE, batch_offset));
+            thread_index, ibatch, LINEITEM::L_RECEIPTDATE,
+            tld.lineitem_to_generate - irow, batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_RECEIPTDATE].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         uint32_t* l_receiptdate =
             reinterpret_cast<uint32_t*>(tld.lineitem[ibatch][LINEITEM::L_RECEIPTDATE]
@@ -2246,8 +2251,6 @@ class OrdersAndLineItemGenerator {
           l_receiptdate[batch_offset] = l_shipdate[batch_offset] + dist(tld.rng);
 
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_RECEIPTDATE].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2264,9 +2267,11 @@ class OrdersAndLineItemGenerator {
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
         RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
-            thread_index, ibatch, LINEITEM::L_SHIPINSTRUCT, batch_offset));
+            thread_index, ibatch, LINEITEM::L_SHIPINSTRUCT,
+            tld.lineitem_to_generate - irow, batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_SHIPINSTRUCT].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         char* l_shipinstruct =
             reinterpret_cast<char*>(tld.lineitem[ibatch][LINEITEM::L_SHIPINSTRUCT]
@@ -2281,8 +2286,6 @@ class OrdersAndLineItemGenerator {
           std::strncpy(l_shipinstruct + batch_offset * byte_width, str, byte_width);
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_SHIPINSTRUCT].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2298,10 +2301,12 @@ class OrdersAndLineItemGenerator {
       std::uniform_int_distribution<size_t> dist(0, kNumModes - 1);
       for (int64_t irow = 0; irow < tld.lineitem_to_generate; ibatch++) {
         size_t batch_offset;
-        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(thread_index, ibatch,
-                                                     LINEITEM::L_SHIPMODE, batch_offset));
+        RETURN_NOT_OK(AllocateLineItemBufferIfNeeded(
+            thread_index, ibatch, LINEITEM::L_SHIPMODE, tld.lineitem_to_generate - irow,
+            batch_offset));
 
-        int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
+        auto batch = tld.lineitem[ibatch][LINEITEM::L_SHIPMODE].array();
+        int64_t remaining_in_batch = static_cast<int64_t>(batch->length - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
         char* l_shipmode =
             reinterpret_cast<char*>(tld.lineitem[ibatch][LINEITEM::L_SHIPMODE]
@@ -2314,8 +2319,6 @@ class OrdersAndLineItemGenerator {
           std::strncpy(l_shipmode + batch_offset * byte_width, str, byte_width);
         }
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_SHIPMODE].array()->length =
-            static_cast<int64_t>(batch_offset);
       }
     }
     return Status::OK();
@@ -2331,19 +2334,17 @@ class OrdersAndLineItemGenerator {
         // Comments are kind of sneaky: we always generate the full batch and then just
         // bump the length
         size_t batch_offset = 0;
-        if (tld.lineitem[ibatch][LINEITEM::L_COMMENT].kind() == Datum::NONE) {
-          ARROW_ASSIGN_OR_RAISE(tld.lineitem[ibatch][LINEITEM::L_COMMENT],
-                                g_text.GenerateComments(batch_size_, 10, 43, tld.rng));
-          batch_offset = 0;
-        }
         if (irow == 0) batch_offset = tld.first_batch_offset;
-
         int64_t remaining_in_batch = static_cast<int64_t>(batch_size_ - batch_offset);
         int64_t next_run = std::min(tld.lineitem_to_generate - irow, remaining_in_batch);
 
+        if (tld.lineitem[ibatch][LINEITEM::L_COMMENT].kind() == Datum::NONE) {
+          ARROW_ASSIGN_OR_RAISE(tld.lineitem[ibatch][LINEITEM::L_COMMENT],
+                                g_text.GenerateComments(next_run, 10, 43, tld.rng));
+        }
+
         batch_offset += next_run;
         irow += next_run;
-        tld.lineitem[ibatch][LINEITEM::L_COMMENT].array()->length = batch_offset;
       }
     }
     return Status::OK();
