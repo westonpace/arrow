@@ -32,7 +32,7 @@ namespace compute {
 // whenever it is modified by a concurrent thread on a different CPU core.
 //
 template <typename T>
-class AtomicWithPadding {
+class ARROW_EXPORT AtomicWithPadding {
  private:
   static constexpr int kCacheLineSize = 64;
   uint8_t padding_before[kCacheLineSize];
@@ -53,7 +53,7 @@ class AtomicWithPadding {
 //
 // Also allows for executing next pending tasks immediately using a caller thread.
 //
-class TaskScheduler {
+class ARROW_EXPORT TaskScheduler {
  public:
   using TaskImpl = std::function<Status(size_t, int64_t)>;
   using TaskGroupContinuationImpl = std::function<Status(size_t)>;
