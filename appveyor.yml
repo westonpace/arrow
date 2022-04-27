@@ -69,6 +69,10 @@ before_build:
 build_script:
   - call ci\appveyor-cpp-build.bat
 
+artifacts:
+  - path: C:\projects\arrow\cpp\build\googletest_ep-prefix
+    name: googletest
+
 # Disable test discovery
 test: off
 
