@@ -470,16 +470,10 @@ bool ExecNode::ErrorIfNotOk(Status status) {
 }
 
 MapNode::MapNode(ExecPlan* plan, std::vector<ExecNode*> inputs,
-                 std::shared_ptr<Schema> output_schema, bool async_mode)
+                 std::shared_ptr<Schema> output_schema)
     : ExecNode(plan, std::move(inputs), /*input_labels=*/{"target"},
                std::move(output_schema),
-               /*num_outputs=*/1) {
-  if (async_mode) {
-    executor_ = plan_->exec_context()->executor();
-  } else {
-    executor_ = nullptr;
-  }
-}
+               /*num_outputs=*/1) {}
 
 void MapNode::ErrorReceived(ExecNode* input, Status error) {
   DCHECK_EQ(input, inputs_[0]);
@@ -518,9 +512,7 @@ void MapNode::StopProducing(ExecNode* output) {
 
 void MapNode::StopProducing() {
   EVENT(span_, "StopProducing");
-  if (executor_) {
-    this->stop_source_.RequestStop();
-  }
+  this->stop_source_.RequestStop();
   if (input_counter_.Cancel()) {
     this->Finish();
   }

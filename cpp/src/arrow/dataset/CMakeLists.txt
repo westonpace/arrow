@@ -28,7 +28,8 @@ set(ARROW_DATASET_SRCS
     partition.cc
     plan.cc
     projector.cc
-    scanner.cc)
+    scanner.cc
+    scan_node.cc)
 
 set(ARROW_DATASET_LINK_STATIC arrow_static ${ARROW_STATIC_LINK_LIBS})
 set(ARROW_DATASET_LINK_SHARED arrow_shared)

@@ -24,6 +24,7 @@
 #include "arrow/dataset/scanner.h"
 #include "arrow/table.h"
 #include "arrow/util/bit_util.h"
+#include "arrow/util/byte_size.h"
 #include "arrow/util/iterator.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/make_unique.h"
@@ -38,6 +39,15 @@ Fragment::Fragment(compute::Expression partition_expression,
                    std::shared_ptr<Schema> physical_schema)
     : partition_expression_(std::move(partition_expression)),
       physical_schema_(std::move(physical_schema)) {}
+
+Future<std::shared_ptr<InspectedFragment>> Fragment::InspectFragment() {
+  return Status::NotImplemented("Inspect fragment");
+}
+
+Future<std::shared_ptr<FragmentScanner>> Fragment::BeginScan(
+    const FragmentScanRequest& request, const InspectedFragment& inspected_fragment) {
+  return Status::NotImplemented("New scan method");
+}
 
 Result<std::shared_ptr<Schema>> Fragment::ReadPhysicalSchema() {
   {
@@ -141,6 +151,35 @@ Future<util::optional<int64_t>> InMemoryFragment::CountRows(
   return Future<util::optional<int64_t>>::MakeFinished(total);
 }
 
+Future<std::shared_ptr<InspectedFragment>> InMemoryFragment::InspectFragment() {
+  return std::make_shared<InspectedFragment>(physical_schema_->field_names());
+}
+
+class InMemoryFragment::Scanner : public FragmentScanner {
+ public:
+  Scanner(InMemoryFragment* fragment) : fragment_(fragment) {}
+
+  virtual ReadTask ScanMore(uint64_t target_num_bytes) {
+    const std::shared_ptr<RecordBatch>& next_batch = fragment_->record_batches_[index++];
+    int64_t actual_bytes = arrow::util::TotalBufferSize(*next_batch);
+    return ReadTask{Future<std::shared_ptr<RecordBatch>>::MakeFinished(next_batch),
+                    static_cast<uint64_t>(actual_bytes)};
+  }
+  virtual bool HasUnscannedData() {
+    return index < static_cast<int>(fragment_->record_batches_.size());
+  }
+
+ private:
+  InMemoryFragment* fragment_;
+  int index = 0;
+};
+
+Future<std::shared_ptr<FragmentScanner>> InMemoryFragment::BeginScan(
+    const FragmentScanRequest& request, const InspectedFragment& inspected_fragment) {
+  return Future<std::shared_ptr<FragmentScanner>>::MakeFinished(
+      std::make_shared<InMemoryFragment::Scanner>(this));
+}
+
 Dataset::Dataset(std::shared_ptr<Schema> schema, compute::Expression partition_expression)
     : schema_(std::move(schema)),
       partition_expression_(std::move(partition_expression)) {}
@@ -236,6 +275,113 @@ Result<std::shared_ptr<Dataset>> UnionDataset::ReplaceSchema(
 
 Result<FragmentIterator> UnionDataset::GetFragmentsImpl(compute::Expression predicate) {
   return GetFragmentsFromDatasets(children_, predicate);
+}
+
+namespace {
+
+class BasicFragmentEvolution : public FragmentEvolutionStrategy {
+ public:
+  BasicFragmentEvolution(std::vector<int> ds_to_frag_map, Schema* dataset_schema)
+      : ds_to_frag_map(std::move(ds_to_frag_map)), dataset_schema(dataset_schema) {}
+
+  virtual Result<compute::Expression> GetGuarantee(
+      const std::vector<FieldPath>& dataset_schema_selection) const override {
+    std::vector<compute::Expression> missing_fields;
+    for (const FieldPath& path : dataset_schema_selection) {
+      int top_level_field_idx = path[0];
+      if (ds_to_frag_map[top_level_field_idx] < 0) {
+        missing_fields.push_back(compute::equal(
+            compute::field_ref(top_level_field_idx),
+            compute::literal(
+                MakeNullScalar(dataset_schema->fields()[top_level_field_idx]->type()))));
+      }
+    }
+    if (missing_fields.empty()) {
+      return compute::literal(true);
+    }
+    if (missing_fields.size() == 1) {
+      return missing_fields[0];
+    }
+    return compute::and_(missing_fields);
+  }
+
+  Result<std::vector<FragmentSelectionColumn>> DevolveSelection(
+      const std::vector<FieldPath>& dataset_schema_selection) const override {
+    std::vector<FragmentSelectionColumn> desired_columns;
+    for (const FieldPath& path : dataset_schema_selection) {
+      int top_level_field_idx = path[0];
+      int dest_top_level_idx = ds_to_frag_map[top_level_field_idx];
+      if (dest_top_level_idx > 0) {
+        ARROW_ASSIGN_OR_RAISE(std::shared_ptr<Field> field, path.Get(*dataset_schema));
+        std::vector<int> dest_path_indices(path.indices());
+        dest_path_indices[0] = dest_top_level_idx;
+        desired_columns.push_back(
+            FragmentSelectionColumn{FieldPath(dest_path_indices), field->type().get()});
+      }
+    }
+    return std::move(desired_columns);
+  };
+
+  virtual Result<compute::Expression> DevolveFilter(
+      const compute::Expression& filter) const override {
+    return filter;
+  };
+
+  virtual Result<compute::ExecBatch> EvolveBatch(
+      const std::shared_ptr<RecordBatch>& batch) const override {
+    std::vector<Datum> columns;
+    for (int idx : ds_to_frag_map) {
+      if (idx < 0) {
+        columns.push_back(MakeNullScalar(dataset_schema->field(idx)->type()));
+      } else {
+        columns.push_back(batch->column(idx));
+      }
+    }
+    return compute::ExecBatch(columns, batch->num_rows());
+  };
+
+  std::string ToString() const override { return "basic-fragment-evolution"; }
+
+  std::vector<int> ds_to_frag_map;
+  Schema* dataset_schema;
+
+  static std::unique_ptr<BasicFragmentEvolution> Make(
+      const std::shared_ptr<Schema>& dataset_schema,
+      const std::vector<std::string>& fragment_column_names) {
+    std::vector<int> ds_to_frag_map;
+    std::unordered_map<std::string, int> column_names_map;
+    for (size_t i = 0; i < fragment_column_names.size(); i++) {
+      column_names_map[fragment_column_names[i]] = static_cast<int>(i);
+    }
+    for (int idx = 0; idx < dataset_schema->num_fields(); idx++) {
+      const std::string& field_name = dataset_schema->field(idx)->name();
+      auto column_idx_itr = column_names_map.find(field_name);
+      if (column_idx_itr == column_names_map.end()) {
+        ds_to_frag_map.push_back(-1);
+      } else {
+        ds_to_frag_map.push_back(column_idx_itr->second);
+      }
+    }
+    return ::arrow::internal::make_unique<BasicFragmentEvolution>(
+        std::move(ds_to_frag_map), dataset_schema.get());
+  }
+};
+
+class BasicDatasetEvolutionStrategy : public DatasetEvolutionStrategy {
+  std::unique_ptr<FragmentEvolutionStrategy> GetStrategy(
+      const Dataset& dataset, const Fragment& fragment,
+      const InspectedFragment& inspected_fragment) override {
+    return BasicFragmentEvolution::Make(dataset.schema(),
+                                        inspected_fragment.column_names);
+  }
+
+  std::string ToString() const override { return "basic-dataset-evolution"; }
+};
+
+}  // namespace
+
+std::unique_ptr<DatasetEvolutionStrategy> MakeBasicDatasetEvolutionStrategy() {
+  return ::arrow::internal::make_unique<BasicDatasetEvolutionStrategy>();
 }
 
 }  // namespace dataset
