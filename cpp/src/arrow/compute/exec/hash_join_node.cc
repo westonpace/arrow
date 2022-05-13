@@ -726,7 +726,7 @@ class HashJoinNode : public ExecNode {
     std::vector<int> column_map;
     std::tie(pushdown_target, column_map) = GetPushdownTarget();
 
-    RETURN_NOT_OK(impl_->Init(
+    return impl_->Init(
         plan_->exec_context(), join_type_, use_sync_execution, num_threads,
         &(schema_mgr_->proj_maps[0]), &(schema_mgr_->proj_maps[1]), key_cmp_, filter_,
         [this](int64_t /*ignored*/, ExecBatch batch) {
@@ -736,7 +736,7 @@ class HashJoinNode : public ExecNode {
         [this](std::function<Status(size_t)> func) -> Status {
           return this->ScheduleTaskCallback(std::move(func));
         },
-        pushdown_target, std::move(column_map)));
+        pushdown_target, std::move(column_map));
   }
 
   Status StartProducing() override {
@@ -745,10 +745,6 @@ class HashJoinNode : public ExecNode {
                         {"node.detail", ToString()},
                         {"node.kind", kind_name()}});
     END_SPAN_ON_FUTURE_COMPLETION(span_, finished(), this);
-
-    bool use_sync_execution = !(plan_->exec_context()->executor());
-    size_t num_threads = use_sync_execution ? 1 : thread_indexer_.Capacity();
-
     return Status::OK();
   }
 

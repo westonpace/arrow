@@ -1235,14 +1235,14 @@ Status SwissTableForJoinBuild::PushNextBatch(int64_t thread_id,
     PartitionSort::Eval(
         static_cast<int>(locals.batch_hashes.size()), num_prtns_,
         locals.batch_prtn_ranges.data(),
-        [this, &locals](int i) {
+        [this, &locals](int64_t i) {
           // SwissTable uses the highest bits of the hash for block index.
           // We want each partition to correspond to a range of block indices,
           // so we also partition on the highest bits of the hash.
           //
           return locals.batch_hashes[i] >> (31 - log_num_prtns_) >> 1;
         },
-        [&locals](int i, int pos) { locals.batch_prtn_row_ids[pos] = i; });
+        [&locals](int64_t i, int pos) { locals.batch_prtn_row_ids[pos] = i; });
   }
 
   // Update hashes, shifting left to get rid of the bits that were already used
@@ -1259,7 +1259,7 @@ Status SwissTableForJoinBuild::PushNextBatch(int64_t thread_id,
   locals.temp_prtn_ids.resize(num_prtns_);
 
   RETURN_NOT_OK(prtn_locks_.ForEachPartition(
-      locals.temp_prtn_ids.data(),
+      thread_id, locals.temp_prtn_ids.data(),
       /*is_prtn_empty_fn=*/
       [&](int prtn_id) {
         return locals.batch_prtn_ranges[prtn_id + 1] == locals.batch_prtn_ranges[prtn_id];
@@ -2133,7 +2133,9 @@ class SwissJoin : public HashJoinImpl {
               std::vector<JoinKeyCmp> key_cmp, Expression filter,
               OutputBatchCallback output_batch_callback,
               FinishedCallback finished_callback,
-              TaskScheduler::ScheduleImpl schedule_task_callback) override {
+              TaskScheduler::ScheduleImpl schedule_task_callback,
+              HashJoinImpl* /*pushdown_target*/,
+              std::vector<int> /*column_map*/) override {
     num_threads_ = static_cast<int>(std::max(num_threads, static_cast<size_t>(1)));
 
     START_SPAN(span_, "HashJoinBasicImpl",
