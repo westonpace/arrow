@@ -25,6 +25,7 @@
 #include "arrow/compute/exec.h"
 #include "arrow/compute/exec/util.h"
 #include "arrow/compute/light_array.h"
+#include "arrow/compute/row/row_internal.h"
 #include "arrow/memory_pool.h"
 #include "arrow/result.h"
 #include "arrow/status.h"
@@ -33,199 +34,18 @@
 namespace arrow {
 namespace compute {
 
-/// Converts between key representation as a collection of arrays for
-/// individual columns and another representation as a single array of rows
-/// combining data from all columns into one value.
-/// This conversion is reversible.
+/// Converts between Arrow's typical column representation to a row-based representation
+///
+/// Data is stored as a single array of rows.  Each row combines data from all columns.
+/// The conversion is reversible.
+///
 /// Row-oriented storage is beneficial when there is a need for random access
 /// of individual rows and at the same time all included columns are likely to
 /// be accessed together, as in the case of hash table key.
+///
+/// Does not support nested types
 class KeyEncoder {
  public:
-  struct KeyEncoderContext {
-    bool has_avx2() const {
-      return (hardware_flags & arrow::internal::CpuInfo::AVX2) > 0;
-    }
-    int64_t hardware_flags;
-    util::TempVectorStack* stack;
-  };
-
-  /// Description of a storage format for rows produced by encoder.
-  struct KeyRowMetadata {
-    /// Is row a varying-length binary, using offsets array to find a beginning of a row,
-    /// or is it a fixed-length binary.
-    bool is_fixed_length;
-
-    /// For a fixed-length binary row, common size of rows in bytes,
-    /// rounded up to the multiple of alignment.
-    ///
-    /// For a varying-length binary, size of all encoded fixed-length key columns,
-    /// including lengths of varying-length columns, rounded up to the multiple of string
-    /// alignment.
-    uint32_t fixed_length;
-
-    /// Offset within a row to the array of 32-bit offsets within a row of
-    /// ends of varbinary fields.
-    /// Used only when the row is not fixed-length, zero for fixed-length row.
-    /// There are N elements for N varbinary fields.
-    /// Each element is the offset within a row of the first byte after
-    /// the corresponding varbinary field bytes in that row.
-    /// If varbinary fields begin at aligned addresses, than the end of the previous
-    /// varbinary field needs to be rounded up according to the specified alignment
-    /// to obtain the beginning of the next varbinary field.
-    /// The first varbinary field starts at offset specified by fixed_length,
-    /// which should already be aligned.
-    uint32_t varbinary_end_array_offset;
-
-    /// Fixed number of bytes per row that are used to encode null masks.
-    /// Null masks indicate for a single row which of its key columns are null.
-    /// Nth bit in the sequence of bytes assigned to a row represents null
-    /// information for Nth field according to the order in which they are encoded.
-    int null_masks_bytes_per_row;
-
-    /// Power of 2. Every row will start at the offset aligned to that number of bytes.
-    int row_alignment;
-
-    /// Power of 2. Must be no greater than row alignment.
-    /// Every non-power-of-2 binary field and every varbinary field bytes
-    /// will start aligned to that number of bytes.
-    int string_alignment;
-
-    /// Metadata of encoded columns in their original order.
-    std::vector<KeyColumnMetadata> column_metadatas;
-
-    /// Order in which fields are encoded.
-    std::vector<uint32_t> column_order;
-    std::vector<uint32_t> inverse_column_order;
-
-    /// Offsets within a row to fields in their encoding order.
-    std::vector<uint32_t> column_offsets;
-
-    /// Rounding up offset to the nearest multiple of alignment value.
-    /// Alignment must be a power of 2.
-    static inline uint32_t padding_for_alignment(uint32_t offset,
-                                                 int required_alignment) {
-      ARROW_DCHECK(ARROW_POPCOUNT64(required_alignment) == 1);
-      return static_cast<uint32_t>((-static_cast<int32_t>(offset)) &
-                                   (required_alignment - 1));
-    }
-
-    /// Rounding up offset to the beginning of next column,
-    /// chosing required alignment based on the data type of that column.
-    static inline uint32_t padding_for_alignment(uint32_t offset, int string_alignment,
-                                                 const KeyColumnMetadata& col_metadata) {
-      if (!col_metadata.is_fixed_length ||
-          ARROW_POPCOUNT64(col_metadata.fixed_length) <= 1) {
-        return 0;
-      } else {
-        return padding_for_alignment(offset, string_alignment);
-      }
-    }
-
-    /// Returns an array of offsets within a row of ends of varbinary fields.
-    inline const uint32_t* varbinary_end_array(const uint8_t* row) const {
-      ARROW_DCHECK(!is_fixed_length);
-      return reinterpret_cast<const uint32_t*>(row + varbinary_end_array_offset);
-    }
-    inline uint32_t* varbinary_end_array(uint8_t* row) const {
-      ARROW_DCHECK(!is_fixed_length);
-      return reinterpret_cast<uint32_t*>(row + varbinary_end_array_offset);
-    }
-
-    /// Returns the offset within the row and length of the first varbinary field.
-    inline void first_varbinary_offset_and_length(const uint8_t* row, uint32_t* offset,
-                                                  uint32_t* length) const {
-      ARROW_DCHECK(!is_fixed_length);
-      *offset = fixed_length;
-      *length = varbinary_end_array(row)[0] - fixed_length;
-    }
-
-    /// Returns the offset within the row and length of the second and further varbinary
-    /// fields.
-    inline void nth_varbinary_offset_and_length(const uint8_t* row, int varbinary_id,
-                                                uint32_t* out_offset,
-                                                uint32_t* out_length) const {
-      ARROW_DCHECK(!is_fixed_length);
-      ARROW_DCHECK(varbinary_id > 0);
-      const uint32_t* varbinary_end = varbinary_end_array(row);
-      uint32_t offset = varbinary_end[varbinary_id - 1];
-      offset += padding_for_alignment(offset, string_alignment);
-      *out_offset = offset;
-      *out_length = varbinary_end[varbinary_id] - offset;
-    }
-
-    uint32_t encoded_field_order(uint32_t icol) const { return column_order[icol]; }
-
-    uint32_t pos_after_encoding(uint32_t icol) const {
-      return inverse_column_order[icol];
-    }
-
-    uint32_t encoded_field_offset(uint32_t icol) const { return column_offsets[icol]; }
-
-    uint32_t num_cols() const { return static_cast<uint32_t>(column_metadatas.size()); }
-
-    uint32_t num_varbinary_cols() const;
-
-    void FromColumnMetadataVector(const std::vector<KeyColumnMetadata>& cols,
-                                  int in_row_alignment, int in_string_alignment);
-
-    bool is_compatible(const KeyRowMetadata& other) const;
-  };
-
-  class KeyRowArray {
-   public:
-    KeyRowArray();
-    Status Init(MemoryPool* pool, const KeyRowMetadata& metadata);
-    void Clean();
-    Status AppendEmpty(uint32_t num_rows_to_append, uint32_t num_extra_bytes_to_append);
-    Status AppendSelectionFrom(const KeyRowArray& from, uint32_t num_rows_to_append,
-                               const uint16_t* source_row_ids);
-    const KeyRowMetadata& metadata() const { return metadata_; }
-    int64_t length() const { return num_rows_; }
-    const uint8_t* data(int i) const {
-      ARROW_DCHECK(i >= 0 && i <= max_buffers_);
-      return buffers_[i];
-    }
-    uint8_t* mutable_data(int i) {
-      ARROW_DCHECK(i >= 0 && i <= max_buffers_);
-      return mutable_buffers_[i];
-    }
-    const uint32_t* offsets() const { return reinterpret_cast<const uint32_t*>(data(1)); }
-    uint32_t* mutable_offsets() { return reinterpret_cast<uint32_t*>(mutable_data(1)); }
-    const uint8_t* null_masks() const { return null_masks_->data(); }
-    uint8_t* null_masks() { return null_masks_->mutable_data(); }
-
-    bool has_any_nulls(const KeyEncoderContext* ctx) const;
-
-   private:
-    Status ResizeFixedLengthBuffers(int64_t num_extra_rows);
-    Status ResizeOptionalVaryingLengthBuffer(int64_t num_extra_bytes);
-
-    int64_t size_null_masks(int64_t num_rows);
-    int64_t size_offsets(int64_t num_rows);
-    int64_t size_rows_fixed_length(int64_t num_rows);
-    int64_t size_rows_varying_length(int64_t num_bytes);
-    void update_buffer_pointers();
-
-    static constexpr int64_t padding_for_vectors = 64;
-    MemoryPool* pool_;
-    KeyRowMetadata metadata_;
-    /// Buffers can only expand during lifetime and never shrink.
-    std::unique_ptr<ResizableBuffer> null_masks_;
-    std::unique_ptr<ResizableBuffer> offsets_;
-    std::unique_ptr<ResizableBuffer> rows_;
-    static constexpr int max_buffers_ = 3;
-    const uint8_t* buffers_[max_buffers_];
-    uint8_t* mutable_buffers_[max_buffers_];
-    int64_t num_rows_;
-    int64_t rows_capacity_;
-    int64_t bytes_capacity_;
-
-    // Mutable to allow lazy evaluation
-    mutable int64_t num_rows_for_has_any_nulls_;
-    mutable bool has_any_nulls_;
-  };
-
   void Init(const std::vector<KeyColumnMetadata>& cols, int row_alignment,
             int string_alignment);
 
@@ -503,6 +323,183 @@ inline void KeyEncoder::EncoderVarBinary::DecodeHelper(
     copy_fn(dst, src, length);
   }
 }
+
+// Write operations (appending batch rows) must not be called by more than one
+// thread at the same time.
+//
+// Read operations (row comparison, column decoding)
+// can be called by multiple threads concurrently.
+//
+struct RowArray {
+  RowArray() : is_initialized_(false) {}
+
+  Status InitIfNeeded(MemoryPool* pool, const ExecBatch& batch);
+  Status InitIfNeeded(MemoryPool* pool, const KeyEncoder::KeyRowMetadata& row_metadata);
+
+  Status AppendBatchSelection(MemoryPool* pool, const ExecBatch& batch, int begin_row_id,
+                              int end_row_id, int num_row_ids, const uint16_t* row_ids,
+                              std::vector<KeyColumnArray>& temp_column_arrays);
+
+  // This can only be called for a minibatch.
+  //
+  void Compare(const ExecBatch& batch, int begin_row_id, int end_row_id, int num_selected,
+               const uint16_t* batch_selection_maybe_null, const uint32_t* array_row_ids,
+               uint32_t* out_num_not_equal, uint16_t* out_not_equal_selection,
+               int64_t hardware_flags, util::TempVectorStack* temp_stack,
+               std::vector<KeyColumnArray>& temp_column_arrays,
+               uint8_t* out_match_bitvector_maybe_null = NULLPTR);
+
+  // TODO: add AVX2 version
+  //
+  Status DecodeSelected(ResizableArrayData* target, int column_id, int num_rows_to_append,
+                        const uint32_t* row_ids, MemoryPool* pool) const;
+
+  int64_t num_rows() const { return is_initialized_ ? rows_.length() : 0; }
+
+  bool is_initialized_;
+  KeyEncoder encoder_;
+  KeyRowArray rows_;
+  KeyRowArray rows_temp_;
+};
+
+// Implements concatenating multiple row arrays into a single one, using
+// potentially multiple threads, each processing a single input row array.
+//
+class RowArrayMerge {
+ public:
+  // Calculate total number of rows and size in bytes for merged sequence of
+  // rows and allocate memory for it.
+  //
+  // If the rows are of varying length, initialize in the offset array the first
+  // entry for the write area for each input row array. Leave all other
+  // offsets and buffers uninitialized.
+  //
+  // All input sources must be initialized, but they can contain zero rows.
+  //
+  // Output in vector the first target row id for each source (exclusive
+  // cummulative sum of number of rows in sources).
+  //
+  static Status PrepareForMerge(RowArray* target, const std::vector<RowArray*>& sources,
+                                std::vector<int64_t>* first_target_row_id,
+                                MemoryPool* pool);
+
+  // Copy rows from source array to target array.
+  // Both arrays must have the same row metadata.
+  // Target array must already have the memory reserved in all internal buffers
+  // for the copy of the rows.
+  //
+  // Copy of the rows will occupy the same amount of space in the target array
+  // buffers as in the source array, but in the target array we pick at what row
+  // position and offset we start writing.
+  //
+  // Optionally, the rows may be reordered during copy according to the
+  // provided permutation, which represents some sorting order of source rows.
+  // Nth element of the permutation array is the source row index for the Nth
+  // row written into target array. If permutation is missing (null), then the
+  // order of source rows will remain unchanged.
+  //
+  // In case of varying length rows, we purposefully skip outputting of N+1 (one
+  // after last) offset, to allow concurrent copies of rows done to adjacent
+  // ranges in the target array. This offset should already contain the right
+  // value after calling the method preparing target array for merge (which
+  // initializes boundary offsets for target row ranges for each source).
+  //
+  static void MergeSingle(RowArray* target, const RowArray& source,
+                          int64_t first_target_row_id,
+                          const int64_t* source_rows_permutation);
+
+ private:
+  // Copy rows from source array to a region of the target array.
+  // This implementation is for fixed length rows.
+  // Null information needs to be handled separately.
+  //
+  static void CopyFixedLength(KeyEncoder::KeyRowArray* target,
+                              const KeyEncoder::KeyRowArray& source,
+                              int64_t first_target_row_id,
+                              const int64_t* source_rows_permutation);
+
+  // Copy rows from source array to a region of the target array.
+  // This implementation is for varying length rows.
+  // Null information needs to be handled separately.
+  //
+  static void CopyVaryingLength(KeyEncoder::KeyRowArray* target,
+                                const KeyEncoder::KeyRowArray& source,
+                                int64_t first_target_row_id,
+                                int64_t first_target_row_offset,
+                                const int64_t* source_rows_permutation);
+
+  // Copy null information from rows from source array to a region of the target
+  // array.
+  //
+  static void CopyNulls(KeyEncoder::KeyRowArray* target,
+                        const KeyEncoder::KeyRowArray& source,
+                        int64_t first_target_row_id,
+                        const int64_t* source_rows_permutation);
+};
+
+/// \brief Helper class for visiting data in a row array
+class RowArrayAccessor {
+ public:
+  // Find the index of this varbinary column within the sequence of all
+  // varbinary columns encoded in rows.
+  //
+  static int VarbinaryColumnId(const KeyEncoder::KeyRowMetadata& row_metadata,
+                               int column_id);
+
+  // Calculate how many rows to skip from the tail of the
+  // sequence of selected rows, such that the total size of skipped rows is at
+  // least equal to the size specified by the caller. Skipping of the tail rows
+  // is used to allow for faster processing by the caller of remaining rows
+  // without checking buffer bounds (useful with SIMD or fixed size memory loads
+  // and stores).
+  //
+  static int NumRowsToSkip(const KeyEncoder::KeyRowArray& rows, int column_id,
+                           int num_rows, const uint32_t* row_ids,
+                           int num_tail_bytes_to_skip);
+
+  // The supplied lambda will be called for each row in the given list of rows.
+  // The arguments given to it will be:
+  // - index of a row (within the set of selected rows),
+  // - pointer to the value,
+  // - byte length of the value.
+  //
+  // The information about nulls (validity bitmap) is not used in this call and
+  // has to be processed separately.
+  //
+  template <class PROCESS_VALUE_FN>
+  static void Visit(const KeyEncoder::KeyRowArray& rows, int column_id, int num_rows,
+                    const uint32_t* row_ids, PROCESS_VALUE_FN process_value_fn);
+
+  // The supplied lambda will be called for each row in the given list of rows.
+  // The arguments given to it will be:
+  // - index of a row (within the set of selected rows),
+  // - byte 0xFF if the null is set for the row or 0x00 otherwise.
+  //
+  template <class PROCESS_VALUE_FN>
+  static void VisitNulls(const KeyEncoder::KeyRowArray& rows, int column_id, int num_rows,
+                         const uint32_t* row_ids, PROCESS_VALUE_FN process_value_fn);
+
+ private:
+#if defined(ARROW_HAVE_AVX2)
+  // This is equivalent to Visit method, but processing 8 rows at a time in a
+  // loop.
+  // Returns the number of processed rows, which may be less than requested (up
+  // to 7 rows at the end may be skipped).
+  //
+  template <class PROCESS_8_VALUES_FN>
+  static int Visit_avx2(const KeyEncoder::KeyRowArray& rows, int column_id, int num_rows,
+                        const uint32_t* row_ids, PROCESS_8_VALUES_FN process_8_values_fn);
+
+  // This is equivalent to VisitNulls method, but processing 8 rows at a time in
+  // a loop. Returns the number of processed rows, which may be less than
+  // requested (up to 7 rows at the end may be skipped).
+  //
+  template <class PROCESS_8_VALUES_FN>
+  static int VisitNulls_avx2(const KeyEncoder::KeyRowArray& rows, int column_id,
+                             int num_rows, const uint32_t* row_ids,
+                             PROCESS_8_VALUES_FN process_8_values_fn);
+#endif
+};
 
 }  // namespace compute
 }  // namespace arrow

@@ -31,6 +31,12 @@
 namespace arrow {
 namespace compute {
 
+struct LightContext {
+  bool has_avx2() const { return (hardware_flags & arrow::internal::CpuInfo::AVX2) > 0; }
+  int64_t hardware_flags;
+  util::TempVectorStack* stack;
+};
+
 /// \brief Description of the layout of a "key" column
 ///
 /// A "key" column is a non-nested, non-union column.

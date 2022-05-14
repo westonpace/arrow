@@ -17,7 +17,7 @@
 
 #include <immintrin.h>
 
-#include "arrow/compute/exec/key_encode.h"
+#include "arrow/compute/row/encode_internal.h"
 
 namespace arrow {
 namespace compute {
