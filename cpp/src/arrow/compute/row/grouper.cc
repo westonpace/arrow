@@ -250,7 +250,7 @@ struct GrouperFastImpl : Grouper {
       KeyCompare::CompareColumnsToRows(
           num_keys_to_compare, selection_may_be_null, group_ids, &impl_ptr->encode_ctx_,
           out_num_keys_mismatch, out_selection_mismatch,
-          impl_ptr->encoder_.GetBatchColumns(), impl_ptr->rows_,
+          impl_ptr->encoder_.batch_all_columns_, impl_ptr->rows_,
           /*are_cols_in_encoding_order=*/true);
     };
     auto append_func = [impl_ptr](int num_keys, const uint16_t* selection) {
@@ -349,7 +349,7 @@ struct GrouperFastImpl : Grouper {
       encoder_.PrepareEncodeSelected(start_row, batch_size_next, cols_);
 
       // Compute hash
-      Hashing32::HashMultiColumn(encoder_.GetBatchColumns(), &encode_ctx_,
+      Hashing32::HashMultiColumn(encoder_.batch_all_cols_, &encode_ctx_,
                                  minibatch_hashes_.data());
 
       // Map

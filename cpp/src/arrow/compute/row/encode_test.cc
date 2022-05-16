@@ -15,13 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "arrow/compute/row/encode.h"
 
-#include <cstdint>
-#include "arrow/compute/exec/encode_internal.h"
-#include "arrow/compute/exec/options.h"
-#include "arrow/compute/light_array.h"
+#include <gtest/gtest.h>
 
-namespace arrow {
-namespace compute {}  // namespace compute
-}  // namespace arrow
+#include "arrow/compute/test_util.h"
+#include "arrow/type.h"
+
+TEST(Encoder, Int32) {
+  ExecBatchFromJSON({int32(), int32(), int32()}, R"([
+                   [1, 4, 7],
+                   [2, 5, 8],
+                   [3, 6, 9]
+                 ])")
+}

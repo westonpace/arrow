@@ -23,7 +23,7 @@
 
 #include <cstdint>
 
-#include "arrow/compute/exec/encode_internal.h"
+#include "arrow/compute/row/encode.h"
 #include "arrow/compute/exec/util.h"
 
 namespace arrow {

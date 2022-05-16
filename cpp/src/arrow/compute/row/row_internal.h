@@ -27,8 +27,8 @@
 namespace arrow {
 namespace compute {
 
-/// Description of the data stored in a KeyRowArray
-struct KeyRowMetadata {
+/// Description of the data stored in a RowTable
+struct RowTableMetadata {
   /// \brief True if there are no variable length columns in the table
   bool is_fixed_length;
 
@@ -148,7 +148,7 @@ struct KeyRowMetadata {
   /// \brief True if `other` has the same number of columns
   ///   and each column has the same width (two variable length
   ///   columns are considered to have the same width)
-  bool is_compatible(const KeyRowMetadata& other) const;
+  bool is_compatible(const RowTableMetadata& other) const;
 };
 
 /// \brief A table of data stored in row-major order
@@ -156,13 +156,13 @@ struct KeyRowMetadata {
 /// Can only store non-nested data types
 ///
 /// Can store both fixed-size data types and variable-length data types
-class KeyRowArray {
+class RowTable {
  public:
-  KeyRowArray();
+  RowTable();
   /// \brief Initialize a row array for use
   ///
   /// This must be called before any other method
-  Status Init(MemoryPool* pool, const KeyRowMetadata& metadata);
+  Status Init(MemoryPool* pool, const RowTableMetadata& metadata);
   /// \brief Clear all rows from the table
   ///
   /// Does not shrink buffers
@@ -177,10 +177,10 @@ class KeyRowArray {
   /// \param from The table to append from
   /// \param num_rows_to_append The number of rows to append
   /// \param source_row_ids Indices (into `from`) of the desired rows
-  Status AppendSelectionFrom(const KeyRowArray& from, uint32_t num_rows_to_append,
+  Status AppendSelectionFrom(const RowTable& from, uint32_t num_rows_to_append,
                              const uint16_t* source_row_ids);
   /// \brief Metadata describing the data stored in this table
-  const KeyRowMetadata& metadata() const { return metadata_; }
+  const RowTableMetadata& metadata() const { return metadata_; }
   /// \brief The number of rows stored in the table
   int64_t length() const { return num_rows_; }
   // Accessors into the table's buffers
@@ -219,7 +219,7 @@ class KeyRowArray {
 
   static constexpr int64_t padding_for_vectors = 64;
   MemoryPool* pool_;
-  KeyRowMetadata metadata_;
+  RowTableMetadata metadata_;
   // Buffers can only expand during lifetime and never shrink.
   std::unique_ptr<ResizableBuffer> null_masks_;
   // Only used if the table has variable-length columns

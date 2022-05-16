@@ -22,7 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 
-#include "arrow/compute/exec/encode_internal.h"
+#include "arrow/compute/row/encode.h"
 #include "arrow/util/bit_util.h"
 #include "arrow/util/ubsan.h"
 

@@ -441,6 +441,7 @@ if(ARROW_COMPUTE)
        compute/kernels/vector_replace.cc
        compute/kernels/vector_selection.cc
        compute/kernels/vector_sort.cc
+       compute/row/encode.cc
        compute/row/encode_internal.cc
        compute/row/key_compare.cc
        compute/row/grouper.cc)
@@ -454,7 +455,7 @@ if(ARROW_COMPUTE)
   append_avx2_src(compute/exec/swiss_join_avx2.cc)
   append_avx2_src(compute/exec/util_avx2.cc)
   append_avx2_src(compute/row/key_compare_avx2.cc)
-  append_avx2_src(compute/row/key_encode_internal_avx2.cc)
+  append_avx2_src(compute/row/encode_internal_avx2.cc)
 
   list(APPEND ARROW_TESTING_SRCS compute/exec/test_util.cc)
 endif()

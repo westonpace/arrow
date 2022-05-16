@@ -21,8 +21,10 @@
 
 #include "arrow/array.h"
 #include "arrow/compute/exec.h"
+#include "arrow/compute/exec/util.h"
 #include "arrow/type.h"
 #include "arrow/util/logging.h"
+#include "arrow/util/cpu_info.h"
 
 /// This file contains lightweight containers for Arrow buffers.  These containers
 /// makes compromises in terms of strong ownership and the range of data types supported

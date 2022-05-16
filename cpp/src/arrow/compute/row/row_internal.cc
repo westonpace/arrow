@@ -5,7 +5,7 @@
 namespace arrow {
 namespace compute {
 
-uint32_t KeyRowMetadata::num_varbinary_cols() const {
+uint32_t RowTableMetadata::num_varbinary_cols() const {
   uint32_t result = 0;
   for (auto column_metadata : column_metadatas) {
     if (!column_metadata.is_fixed_length) {
@@ -15,7 +15,7 @@ uint32_t KeyRowMetadata::num_varbinary_cols() const {
   return result;
 }
 
-bool KeyRowMetadata::is_compatible(const KeyRowMetadata& other) const {
+bool RowTableMetadata::is_compatible(const RowTableMetadata& other) const {
   if (other.num_cols() != num_cols()) {
     return false;
   }
@@ -35,7 +35,7 @@ bool KeyRowMetadata::is_compatible(const KeyRowMetadata& other) const {
   return true;
 }
 
-void KeyRowMetadata::FromColumnMetadataVector(const std::vector<KeyColumnMetadata>& cols,
+void RowTableMetadata::FromColumnMetadataVector(const std::vector<KeyColumnMetadata>& cols,
                                               int in_row_alignment,
                                               int in_string_alignment) {
   column_metadatas.resize(cols.size());
@@ -110,7 +110,7 @@ void KeyRowMetadata::FromColumnMetadataVector(const std::vector<KeyColumnMetadat
     if (col.is_fixed_length && col.fixed_length != 0 &&
         ARROW_POPCOUNT64(col.fixed_length) != 1) {
       offset_within_row +=
-          KeyRowMetadata::padding_for_alignment(offset_within_row, string_alignment, col);
+          RowTableMetadata::padding_for_alignment(offset_within_row, string_alignment, col);
     }
     column_offsets[i] = offset_within_row;
     if (!col.is_fixed_length) {
@@ -136,7 +136,7 @@ void KeyRowMetadata::FromColumnMetadataVector(const std::vector<KeyColumnMetadat
   is_fixed_length = (num_varbinary_cols == 0);
   fixed_length =
       offset_within_row +
-      KeyRowMetadata::padding_for_alignment(
+      RowTableMetadata::padding_for_alignment(
           offset_within_row, num_varbinary_cols == 0 ? row_alignment : string_alignment);
 
   // We set the number of bytes per row storing null masks of individual key columns
@@ -148,9 +148,9 @@ void KeyRowMetadata::FromColumnMetadataVector(const std::vector<KeyColumnMetadat
   }
 }
 
-KeyRowArray::KeyRowArray() : pool_(nullptr), rows_capacity_(0), bytes_capacity_(0) {}
+RowTable::RowTable() : pool_(nullptr), rows_capacity_(0), bytes_capacity_(0) {}
 
-Status KeyRowArray::Init(MemoryPool* pool, const KeyRowMetadata& metadata) {
+Status RowTable::Init(MemoryPool* pool, const RowTableMetadata& metadata) {
   pool_ = pool;
   metadata_ = metadata;
 
@@ -201,7 +201,7 @@ Status KeyRowArray::Init(MemoryPool* pool, const KeyRowMetadata& metadata) {
   return Status::OK();
 }
 
-void KeyRowArray::Clean() {
+void RowTable::Clean() {
   num_rows_ = 0;
   num_rows_for_has_any_nulls_ = 0;
   has_any_nulls_ = false;
@@ -211,23 +211,23 @@ void KeyRowArray::Clean() {
   }
 }
 
-int64_t KeyRowArray::size_null_masks(int64_t num_rows) {
+int64_t RowTable::size_null_masks(int64_t num_rows) {
   return num_rows * metadata_.null_masks_bytes_per_row + padding_for_vectors;
 }
 
-int64_t KeyRowArray::size_offsets(int64_t num_rows) {
+int64_t RowTable::size_offsets(int64_t num_rows) {
   return (num_rows + 1) * sizeof(uint32_t) + padding_for_vectors;
 }
 
-int64_t KeyRowArray::size_rows_fixed_length(int64_t num_rows) {
+int64_t RowTable::size_rows_fixed_length(int64_t num_rows) {
   return num_rows * metadata_.fixed_length + padding_for_vectors;
 }
 
-int64_t KeyRowArray::size_rows_varying_length(int64_t num_bytes) {
+int64_t RowTable::size_rows_varying_length(int64_t num_bytes) {
   return num_bytes + padding_for_vectors;
 }
 
-void KeyRowArray::update_buffer_pointers() {
+void RowTable::update_buffer_pointers() {
   buffers_[0] = mutable_buffers_[0] = null_masks_->mutable_data();
   if (metadata_.is_fixed_length) {
     buffers_[1] = mutable_buffers_[1] = rows_->mutable_data();
@@ -238,7 +238,7 @@ void KeyRowArray::update_buffer_pointers() {
   }
 }
 
-Status KeyRowArray::ResizeFixedLengthBuffers(int64_t num_extra_rows) {
+Status RowTable::ResizeFixedLengthBuffers(int64_t num_extra_rows) {
   if (rows_capacity_ >= num_rows_ + num_extra_rows) {
     return Status::OK();
   }
@@ -273,7 +273,7 @@ Status KeyRowArray::ResizeFixedLengthBuffers(int64_t num_extra_rows) {
   return Status::OK();
 }
 
-Status KeyRowArray::ResizeOptionalVaryingLengthBuffer(int64_t num_extra_bytes) {
+Status RowTable::ResizeOptionalVaryingLengthBuffer(int64_t num_extra_bytes) {
   int64_t num_bytes = offsets()[num_rows_];
   if (bytes_capacity_ >= num_bytes + num_extra_bytes || metadata_.is_fixed_length) {
     return Status::OK();
@@ -296,7 +296,7 @@ Status KeyRowArray::ResizeOptionalVaryingLengthBuffer(int64_t num_extra_bytes) {
   return Status::OK();
 }
 
-Status KeyRowArray::AppendSelectionFrom(const KeyRowArray& from,
+Status RowTable::AppendSelectionFrom(const RowTable& from,
                                         uint32_t num_rows_to_append,
                                         const uint16_t* source_row_ids) {
   DCHECK(metadata_.is_compatible(from.metadata()));
@@ -367,7 +367,7 @@ Status KeyRowArray::AppendSelectionFrom(const KeyRowArray& from,
   return Status::OK();
 }
 
-Status KeyRowArray::AppendEmpty(uint32_t num_rows_to_append,
+Status RowTable::AppendEmpty(uint32_t num_rows_to_append,
                                 uint32_t num_extra_bytes_to_append) {
   RETURN_NOT_OK(ResizeFixedLengthBuffers(num_rows_to_append));
   RETURN_NOT_OK(ResizeOptionalVaryingLengthBuffer(num_extra_bytes_to_append));
@@ -378,7 +378,7 @@ Status KeyRowArray::AppendEmpty(uint32_t num_rows_to_append,
   return Status::OK();
 }
 
-bool KeyRowArray::has_any_nulls(const LightContext* ctx) const {
+bool RowTable::has_any_nulls(const LightContext* ctx) const {
   if (has_any_nulls_) {
     return true;
   }
