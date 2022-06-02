@@ -142,7 +142,8 @@ Status MinioTestServer::Stop() {
     // so do it ourselves.
     waitpid(impl_->server_process_->id(), nullptr, 0);
 #else
-    WaitForSingleObject(static_cast<HANDLE>(impl_->server_process_->id()), INFINITE);
+    WaitForSingleObject(static_cast<HANDLE>(impl_->server_process_->native_handle()),
+                        INFINITE);
 #endif
   }
   return Status::OK();
