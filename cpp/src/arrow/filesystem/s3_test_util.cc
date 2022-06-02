@@ -141,6 +141,8 @@ Status MinioTestServer::Stop() {
     // Despite calling wait() above, boost::process fails to clear zombies
     // so do it ourselves.
     waitpid(impl_->server_process_->id(), nullptr, 0);
+#elif
+    WaitForSingleObject(impl_->server_process_->id(), INFINITE);
 #endif
   }
   return Status::OK();
