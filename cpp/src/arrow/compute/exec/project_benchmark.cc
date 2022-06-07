@@ -17,10 +17,14 @@
 
 #include "benchmark/benchmark.h"
 
+#include <condition_variable>
+#include <mutex>
+
 #include "arrow/compute/cast.h"
 #include "arrow/compute/exec.h"
 #include "arrow/compute/exec/expression.h"
 #include "arrow/compute/exec/options.h"
+#include "arrow/compute/exec/task_util.h"
 #include "arrow/compute/exec/test_util.h"
 #include "arrow/dataset/partition.h"
 #include "arrow/testing/future_util.h"
@@ -89,12 +93,41 @@ static void ProjectionOverheadIsolated(benchmark::State& state, Expression expr)
                                                    expr,
                                                }}));
     MakeExecNode("sink", plan.get(), {pn}, SinkNodeOptions{&sink_gen});
+    auto scheduler = TaskScheduler::Make();
+    std::condition_variable cv;
+    std::mutex mutex;
+    int task_group_id = scheduler->RegisterTaskGroup(
+        [&](size_t thread_id, int64_t task_id) {
+          pn->InputReceived(sn, data.batches[task_id]);
+          return Status::OK();
+        },
+        [&](size_t thread_id) {
+          pn->InputFinished(sn, data.batches.size());
+          std::unique_lock<std::mutex> lk(mutex);
+          cv.notify_one();
+          return Status::OK();
+        });
+    scheduler->RegisterEnd();
     pn->InputFinished(sn, num_batches);
+    ThreadIndexer thread_indexer;
     state.ResumeTiming();
-    for (auto b : data.batches) {
-      pn->InputReceived(sn, b);
-    }
-    pn->finished();
+    std::unique_lock<std::mutex> lk(mutex);
+    ASSERT_OK(scheduler->StartScheduling(
+        thread_indexer(),
+        [&](std::function<Status(size_t)> task) {
+          struct TaskWrapper {
+            void operator()() { ASSERT_OK(task(thread_indexer())); }
+            std::function<Status(size_t)> task;
+            ThreadIndexer& thread_indexer;
+          };
+          return arrow::internal::GetCpuThreadPool()->Spawn(
+              TaskWrapper{std::move(task), thread_indexer});
+        },
+        arrow::internal::GetCpuThreadPool()->GetCapacity(),
+        /*use_sync_execution=*/false));
+    ASSERT_OK(scheduler->StartTaskGroup(thread_indexer(), task_group_id, num_batches));
+    cv.wait(lk);
+    ASSERT_TRUE(pn->finished().is_finished());
   }
   state.counters["rows_per_second"] = benchmark::Counter(
       static_cast<double>(state.iterations() * num_batches * batch_size),
