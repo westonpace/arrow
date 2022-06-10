@@ -87,7 +87,8 @@ struct ExecPlanImpl : public ExecPlan {
       auto pairs = metadata().get()->sorted_pairs();
       std::for_each(std::begin(pairs), std::end(pairs),
                     [this](std::pair<std::string, std::string> const& pair) {
-                      span_.Get().span->SetAttribute(pair.first, pair.second);
+                      ::arrow::internal::tracing::UnwrapSpan(span_.details.get())
+                          ->SetAttribute(pair.first, pair.second);
                     });
     }
 #endif
