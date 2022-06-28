@@ -470,7 +470,7 @@ struct MinMaxImpl : public ScalarAggregator {
         local.MergeOne(arr.GetView(i));
       }
     }
-    this->state = local;
+    this->state += local;
     return Status::OK();
   }
 
