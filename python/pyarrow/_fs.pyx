@@ -884,13 +884,14 @@ cdef class LocalFileSystem(FileSystem):
     <FileInfo for '/tmp/local_fs-copy.dat': type=FileType.NotFound>
     """
 
-    def __init__(self, *, use_mmap=False):
+    def __init__(self, *, use_mmap=False, use_directio=False):
         cdef:
             CLocalFileSystemOptions opts
             shared_ptr[CLocalFileSystem] fs
 
         opts = CLocalFileSystemOptions.Defaults()
         opts.use_mmap = use_mmap
+        opts.use_directio = use_directio
 
         fs = make_shared[CLocalFileSystem](opts)
         self.init(<shared_ptr[CFileSystem]> fs)
@@ -908,7 +909,7 @@ cdef class LocalFileSystem(FileSystem):
     def __reduce__(self):
         cdef CLocalFileSystemOptions opts = self.localfs.options()
         return LocalFileSystem._reconstruct, (dict(
-            use_mmap=opts.use_mmap),)
+            use_mmap=opts.use_mmap, use_directio=opts.use_directio),)
 
 
 cdef class SubTreeFileSystem(FileSystem):
