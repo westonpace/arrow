@@ -326,7 +326,8 @@ struct CompositeReferenceRow {
 template <size_t MAX_TABLES>
 class CompositeReferenceTable {
  public:
-  explicit CompositeReferenceTable(size_t n_tables) : n_tables_(n_tables) {
+  explicit CompositeReferenceTable(size_t n_tables, MemoryPool* pool)
+      : n_tables_(n_tables), pool_(pool) {
     DCHECK_GE(n_tables_, 1);
     DCHECK_LE(n_tables_, MAX_TABLES);
   }
@@ -454,6 +455,9 @@ class CompositeReferenceTable {
   // Total number of tables in the composite table
   size_t n_tables_;
 
+  // Memory pool for allocations
+  MemoryPool* pool_;
+
   // Adds a RecordBatch ref to the mapping, if needed
   void AddRecordBatchRef(const std::shared_ptr<RecordBatch>& ref) {
     if (!_ptr2ref.count((uintptr_t)ref.get())) _ptr2ref[(uintptr_t)ref.get()] = ref;
@@ -462,7 +466,7 @@ class CompositeReferenceTable {
   template <class Builder, class PrimitiveType>
   Result<std::shared_ptr<Array>> MaterializePrimitiveColumn(size_t i_table,
                                                             col_index_t i_col) {
-    Builder builder;
+    Builder builder(pool_);
     ARROW_RETURN_NOT_OK(builder.Reserve(rows_.size()));
     for (row_index_t i_row = 0; i_row < rows_.size(); ++i_row) {
       const auto& ref = rows_[i_row].refs[i_table];
@@ -513,7 +517,8 @@ class AsofJoinNode : public ExecNode {
     auto& lhs = *state_.at(0);
 
     // Construct new target table if needed
-    CompositeReferenceTable<MAX_JOIN_TABLES> dst(state_.size());
+    CompositeReferenceTable<MAX_JOIN_TABLES> dst(state_.size(),
+                                                 plan_->exec_context()->memory_pool());
 
     // Generate rows into the dst table until we either run out of data or hit the row
     // limit, or run out of input
