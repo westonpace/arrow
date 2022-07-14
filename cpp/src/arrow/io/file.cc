@@ -391,7 +391,9 @@ class DirectFileOutputStream::DirectFileOutputStreamImpl : public OSFile {
 };
 
 DirectFileOutputStream::DirectFileOutputStream() { 
-  cached_data = std::aligned_alloc(512, 512);
+  uintptr_t mask = ~(uintptr_t)(511);
+  uint8_t *mem = static_cast<uint8_t *>(malloc(512 + 511));
+  cached_data = reinterpret_cast<uint8_t *>( reinterpret_cast<uintptr_t>(mem+511) & ~(mask));
   impl_.reset(new DirectFileOutputStreamImpl()); }
 
 DirectFileOutputStream::~DirectFileOutputStream() { internal::CloseFromDestructor(this); }
@@ -432,12 +434,13 @@ Status DirectFileOutputStream::Write(const void* data, int64_t length) {
 
   auto bytes_to_write = (cached_length + length) / 512 * 512;
   auto bytes_leftover = cached_length + length - bytes_to_write;
-
-  void * new_ptr = std::aligned_alloc(512, bytes_to_write);
+  uintptr_t mask = ~(uintptr_t)(511);
+  uint8_t *mem = static_cast<uint8_t *>(malloc(bytes_to_write + 511));
+  uint8_t * new_ptr = reinterpret_cast<uint8_t *>( reinterpret_cast<uintptr_t>(mem+511) & ~(mask));
   std::memcpy(new_ptr, cached_data, cached_length);
   std::memcpy(new_ptr + cached_length, data, bytes_to_write - cached_length);
   std::memset(cached_data, 0, cached_length); //this is not required.
-  std::memcpy(cached_data, data + bytes_to_write - cached_length, bytes_leftover);
+  std::memcpy(cached_data, reinterpret_cast<const uint8_t*>(data) + bytes_to_write - cached_length, bytes_leftover);
   cached_length = bytes_leftover;
   return impl_->Write(new_ptr, bytes_to_write);
 }

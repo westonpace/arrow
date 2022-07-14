@@ -121,7 +121,7 @@ class ARROW_EXPORT DirectFileOutputStream : public OutputStream {
 
   class ARROW_NO_EXPORT DirectFileOutputStreamImpl;
   std::unique_ptr<DirectFileOutputStreamImpl> impl_;
-  void * cached_data;
+  uint8_t * cached_data;
   int64_t cached_length = 0;
 };
 
