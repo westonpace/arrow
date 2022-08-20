@@ -448,7 +448,8 @@ Result<std::shared_ptr<io::OutputStream>> OpenOutputStreamGeneric(const std::str
   return maybe_stream;
 }
 
-Result<std::shared_ptr<io::OutputStream>> OpenDirectIOOutputStreamGeneric(const std::string& path) {
+Result<std::shared_ptr<io::OutputStream>> OpenDirectIOOutputStreamGeneric(
+    const std::string& path) {
   RETURN_NOT_OK(ValidatePath(path));
   ARROW_ASSIGN_OR_RAISE(auto fn, PlatformFilename::FromString(path));
   const bool write_only = true;
@@ -468,20 +469,19 @@ Result<std::shared_ptr<io::OutputStream>> LocalFileSystem::OpenOutputStream(
     const std::string& path, const std::shared_ptr<const KeyValueMetadata>& metadata) {
   bool truncate = true;
   bool append = false;
-  if (options_.use_directio)
-  {
+  if (options_.use_directio) {
     return OpenDirectIOOutputStreamGeneric(path);
-  } else{
+  } else {
     return OpenOutputStreamGeneric(path, truncate, append);
   }
 }
 
 Result<std::shared_ptr<io::OutputStream>> LocalFileSystem::OpenAppendStream(
     const std::string& path, const std::shared_ptr<const KeyValueMetadata>& metadata) {
-  if (options_.use_directio){
+  if (options_.use_directio) {
     return Status::NotImplemented("DirectIO append stream not implemented yet.");
   }
-  
+
   bool truncate = false;
   bool append = true;
   return OpenOutputStreamGeneric(path, truncate, append);
