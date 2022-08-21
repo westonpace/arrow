@@ -162,7 +162,9 @@ class TestLocalFSGenericDirectIO : public TestLocalFSGeneric<CommonPathFormatter
 };
 
 GENERIC_FS_TEST_FUNCTIONS(TestLocalFSGenericMMap);
+#if defined(__linux__)
 GENERIC_FS_TEST_FUNCTIONS_WITHOUT_APPEND(TestLocalFSGenericDirectIO);
+#endif
 
 ////////////////////////////////////////////////////////////////////////////
 // Concrete LocalFileSystem tests
