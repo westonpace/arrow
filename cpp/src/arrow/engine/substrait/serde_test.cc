@@ -3187,5 +3187,69 @@ TEST(Substrait, IsthmusPlan) {
                        *compute::default_exec_context(), buf, {}, conversion_options);
 }
 
+TEST(Substrait, PlanWithExtension) {
+  // This demos an extension relation
+  std::string substrait_json = R"({
+    "extensionUris": [],
+    "extensions": [],
+    "relations": [{
+      "root": {
+        "input": {
+          "extension_single": {
+            "common": {
+              "emit": {
+                "outputMapping": [0, 1]
+              }
+            },
+            "input": {
+              "read": {
+                "common": {
+                  "direct": {
+                  }
+                },
+                "baseSchema": {
+                  "names": ["foo"],
+                  "struct": {
+                    "types": [{
+                      "i32": {
+                        "typeVariationReference": 0,
+                        "nullability": "NULLABILITY_NULLABLE"
+                      }
+                    }],
+                    "typeVariationReference": 0,
+                    "nullability": "NULLABILITY_REQUIRED"
+                  }
+                },
+                "namedTable": {
+                  "names": ["T1"]
+                }
+              }
+            },
+            "detail": {
+              "@type": "/arrow.substrait.DelayRel",
+              "seconds": 42.7
+            }
+          }
+        },
+        "names": ["foo", "delay"]
+      }
+    }],
+    "expectedTypeUrls": []
+  })";
+
+  auto test_schema = schema({field("foo", int32())});
+  auto input_table = TableFromJSON(test_schema, {"[[1], [2], [5]]"});
+  NamedTableProvider table_provider = AlwaysProvideSameTable(std::move(input_table));
+  ConversionOptions conversion_options;
+  conversion_options.named_table_provider = std::move(table_provider);
+
+  ASSERT_OK_AND_ASSIGN(auto buf, internal::SubstraitFromJSON("Plan", substrait_json));
+
+  auto out_schema = schema({field("foo", int32()), field("delay", float64())});
+  auto expected_table = TableFromJSON(out_schema, {"[[1, 42.7], [2, 42.7], [5, 42.7]]"});
+  CheckRoundTripResult(std::move(out_schema), std::move(expected_table),
+                       *compute::default_exec_context(), buf, {}, conversion_options);
+}
+
 }  // namespace engine
 }  // namespace arrow

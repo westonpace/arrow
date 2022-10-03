@@ -23,7 +23,10 @@
 #include <string>
 #include <vector>
 
+#include <google/protobuf/any.pb.h>
+
 #include "arrow/compute/type_fwd.h"
+#include "arrow/engine/substrait/type_fwd.h"
 #include "arrow/type_fwd.h"
 
 namespace arrow {
@@ -65,6 +68,17 @@ using NamedTableProvider =
     std::function<Result<compute::Declaration>(const std::vector<std::string>&)>;
 static NamedTableProvider kDefaultNamedTableProvider;
 
+class ExtensionProvider {
+ public:
+  static std::shared_ptr<ExtensionProvider> kDefaultExtensionProvider;
+  virtual ~ExtensionProvider() = default;
+  virtual Result<DeclarationInfo> HandleSingle(const DeclarationInfo& input,
+                                               const google::protobuf::Any& rel) = 0;
+  virtual Result<DeclarationInfo> HandleMulti(const std::vector<DeclarationInfo>& input,
+                                              const google::protobuf::Any& rel) = 0;
+  virtual Result<DeclarationInfo> HandleLeaf(const google::protobuf::Any& rel) = 0;
+};
+
 /// Options that control the conversion between Substrait and Acero representations of a
 /// plan.
 struct ConversionOptions {
@@ -75,6 +89,8 @@ struct ConversionOptions {
   /// The default behavior will return an invalid status if the plan has any
   /// named table relations.
   NamedTableProvider named_table_provider = kDefaultNamedTableProvider;
+  std::shared_ptr<ExtensionProvider> extension_provider =
+      ExtensionProvider::kDefaultExtensionProvider;
 };
 
 }  // namespace engine

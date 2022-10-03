@@ -14,19 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+syntax = "proto3";
 
-// This API is EXPERIMENTAL.
+package arrow;
 
-#pragma once
+option csharp_namespace = "Arrow.Substrait";
+option go_package = "github.com/apache/arrow/substrait";
+option java_multiple_files = true;
+option java_package = "io.arrow.substrait";
 
-namespace arrow {
-namespace engine {
-
-class ExtensionIdRegistry;
-class ExtensionSet;
-
-struct ConversionOptions;
-struct DeclarationInfo;
-
-}  // namespace engine
-}  // namespace arrow
+// Common fields for all relational operators
+message DelayRel {
+  double seconds = 1;
+}
