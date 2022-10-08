@@ -147,12 +147,11 @@ ExecBatch ExecBatch::Slice(int64_t offset, int64_t length) const {
   return out;
 }
 
-Result<ExecBatch> ExecBatch::Make(std::vector<Datum> values) {
-  if (values.empty()) {
+Result<ExecBatch> ExecBatch::Make(std::vector<Datum> values, int64_t length) {
+  if (values.empty() && length < 0) {
     return Status::Invalid("Cannot infer ExecBatch length without at least one value");
   }
 
-  int64_t length = -1;
   for (const auto& value : values) {
     if (value.is_scalar()) {
       continue;
