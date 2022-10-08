@@ -578,6 +578,7 @@ bool Declaration::IsValid(ExecFactoryRegistry* registry) const {
 }
 
 Future<std::shared_ptr<Table>> DeclarationToTableAsync(Declaration declaration,
+                                                       bool use_threads,
                                                        ExecContext* exec_context) {
   std::shared_ptr<std::shared_ptr<Table>> output_table =
       std::make_shared<std::shared_ptr<Table>>();
@@ -585,38 +586,52 @@ Future<std::shared_ptr<Table>> DeclarationToTableAsync(Declaration declaration,
   Declaration with_sink = Declaration::Sequence(
       {declaration, {"table_sink", TableSinkNodeOptions(output_table.get())}});
   ARROW_RETURN_NOT_OK(with_sink.AddToPlan(exec_plan.get()));
-  ARROW_RETURN_NOT_OK(exec_plan->StartProducing(exec_context->executor()));
-  return exec_plan->finished().Then([exec_plan, output_table] { return *output_table; });
+  Future<> plan_fut = ::arrow::internal::RunSynchronously<Future<>>(
+      [exec_plan](::arrow::internal::Executor* executor) -> Future<> {
+        ARROW_RETURN_NOT_OK(exec_plan->StartProducing(executor));
+        return exec_plan->finished();
+      },
+      use_threads);
+  return plan_fut.Then([output_table] { return *output_table; });
 }
 
 Result<std::shared_ptr<Table>> DeclarationToTable(Declaration declaration,
+                                                  bool use_threads,
                                                   ExecContext* exec_context) {
-  return DeclarationToTableAsync(std::move(declaration), exec_context).result();
+  return DeclarationToTableAsync(std::move(declaration), use_threads, exec_context)
+      .result();
 }
 
 Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatchesAsync(
-    Declaration declaration, ExecContext* exec_context) {
-  return DeclarationToTableAsync(std::move(declaration), exec_context)
+    Declaration declaration, bool use_threads, ExecContext* exec_context) {
+  return DeclarationToTableAsync(std::move(declaration), use_threads, exec_context)
       .Then([](const std::shared_ptr<Table>& table) {
         return TableBatchReader(table).ToRecordBatches();
       });
 }
 
 Result<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatches(
-    Declaration declaration, ExecContext* exec_context) {
-  return DeclarationToBatchesAsync(std::move(declaration), exec_context).result();
+    Declaration declaration, bool use_threads, ExecContext* exec_context) {
+  return DeclarationToBatchesAsync(std::move(declaration), use_threads, exec_context)
+      .result();
 }
 
 Future<std::vector<ExecBatch>> DeclarationToExecBatchesAsync(Declaration declaration,
+                                                             bool use_threads,
                                                              ExecContext* exec_context) {
   AsyncGenerator<std::optional<ExecBatch>> sink_gen;
   ARROW_ASSIGN_OR_RAISE(std::shared_ptr<ExecPlan> exec_plan, ExecPlan::Make());
   Declaration with_sink =
       Declaration::Sequence({declaration, {"sink", SinkNodeOptions(&sink_gen)}});
   ARROW_RETURN_NOT_OK(with_sink.AddToPlan(exec_plan.get()));
-  ARROW_RETURN_NOT_OK(exec_plan->StartProducing(exec_context->executor()));
+  Future<> plan_fut = ::arrow::internal::RunSynchronously<Future<>>(
+      [plan = exec_plan.get()](::arrow::internal::Executor* executor) -> Future<> {
+        ARROW_RETURN_NOT_OK(plan->StartProducing(executor));
+        return plan->finished();
+      },
+      use_threads);
   auto collected_fut = CollectAsyncGenerator(sink_gen);
-  return AllComplete({exec_plan->finished(), Future<>(collected_fut)})
+  return AllComplete({plan_fut, Future<>(collected_fut)})
       .Then([collected_fut, exec_plan]() -> Result<std::vector<ExecBatch>> {
         ARROW_ASSIGN_OR_RAISE(auto collected, collected_fut.result());
         return ::arrow::internal::MapVector(
@@ -626,8 +641,10 @@ Future<std::vector<ExecBatch>> DeclarationToExecBatchesAsync(Declaration declara
 }
 
 Result<std::vector<ExecBatch>> DeclarationToExecBatches(Declaration declaration,
+                                                        bool use_threads,
                                                         ExecContext* exec_context) {
-  return DeclarationToExecBatchesAsync(std::move(declaration), exec_context).result();
+  return DeclarationToExecBatchesAsync(std::move(declaration), use_threads, exec_context)
+      .result();
 }
 
 namespace internal {

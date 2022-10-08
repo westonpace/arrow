@@ -491,32 +491,38 @@ struct ARROW_EXPORT Declaration {
 /// table.  It will then create an ExecPlan from the declaration, start the exec plan,
 /// block until the plan has finished, and return the created table.
 ARROW_EXPORT Result<std::shared_ptr<Table>> DeclarationToTable(
-    Declaration declaration, ExecContext* exec_context = default_exec_context());
+    Declaration declaration, bool use_threads = true,
+    ExecContext* exec_context = default_exec_context());
 
 /// \brief Asynchronous version of \see DeclarationToTable
 ARROW_EXPORT Future<std::shared_ptr<Table>> DeclarationToTableAsync(
-    Declaration declaration, ExecContext* exec_context = default_exec_context());
+    Declaration declaration, bool use_threads = true,
+    ExecContext* exec_context = default_exec_context());
 
 /// \brief Utility method to run a declaration and collect the results into ExecBatch
 /// vector
 ///
 /// \see DeclarationToTable for details
 ARROW_EXPORT Result<std::vector<ExecBatch>> DeclarationToExecBatches(
-    Declaration declaration, ExecContext* exec_context = default_exec_context());
+    Declaration declaration, bool use_threads = true,
+    ExecContext* exec_context = default_exec_context());
 
 /// \brief Asynchronous version of \see DeclarationToExecBatches
 ARROW_EXPORT Future<std::vector<ExecBatch>> DeclarationToExecBatchesAsync(
-    Declaration declaration, ExecContext* exec_context = default_exec_context());
+    Declaration declaration, bool use_threads = true,
+    ExecContext* exec_context = default_exec_context());
 
 /// \brief Utility method to run a declaration and collect the results into a vector
 ///
 /// \see DeclarationToTable for details
 ARROW_EXPORT Result<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatches(
-    Declaration declaration, ExecContext* exec_context = default_exec_context());
+    Declaration declaration, bool use_threads = true,
+    ExecContext* exec_context = default_exec_context());
 
 /// \brief Asynchronous version of \see DeclarationToBatches
 ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatchesAsync(
-    Declaration declaration, ExecContext* exec_context = default_exec_context());
+    Declaration declaration, bool use_threads = true,
+    ExecContext* exec_context = default_exec_context());
 
 /// \brief Wrap an ExecBatch generator in a RecordBatchReader.
 ///
