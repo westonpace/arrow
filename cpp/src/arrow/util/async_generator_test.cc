@@ -1540,6 +1540,32 @@ TEST(TestAsyncUtil, ReadaheadFailedWaitForInFlight) {
   ASSERT_FINISHES_AND_RAISES(Invalid, should_be_invalid);
 }
 
+TEST(TestAsyncUtil, ReadaheadStress) {
+  constexpr int NTASKS = 10;
+  ASSERT_OK_AND_ASSIGN(auto thread_pool, internal::ThreadPool::Make(20));
+  for (int i = 0; i < NTASKS; i++) {
+    std::atomic<int32_t> counter(0);
+    AsyncGenerator<TestInt> source = [&]() -> Future<TestInt> {
+      auto count = counter++;
+      return DeferNotOk(thread_pool->Submit([&, count]() -> Result<TestInt> {
+        SleepABit();
+        if (count >= 20) {
+          return IterationEnd<TestInt>();
+        }
+        return TestInt(count);
+      }));
+      SleepABit();
+    };
+    auto readahead = MakeReadaheadGenerator(source, 8);
+    ASSERT_FINISHES_OK_AND_ASSIGN(auto collected, CollectAsyncGenerator(readahead));
+    std::sort(collected.begin(), collected.end(),
+              [](TestInt a, TestInt b) { return a.value < b.value; });
+    for (std::size_t i = 0; i < 20; i++) {
+      ASSERT_EQ(i, collected[i].value);
+    }
+  }
+}
+
 TEST(TestAsyncUtil, ReadaheadFailedStress) {
   constexpr int NTASKS = 10;
   ASSERT_OK_AND_ASSIGN(auto thread_pool, internal::ThreadPool::Make(20));

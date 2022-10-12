@@ -24,6 +24,7 @@
 #include <limits>
 #include <optional>
 #include <queue>
+#include <thread>
 
 #include "arrow/util/async_generator_fwd.h"
 #include "arrow/util/async_util.h"
@@ -785,6 +786,7 @@ class ReadaheadGenerator {
     if (state_->finished.load()) {
       state_->readahead_queue.push(AsyncGeneratorEnd<T>());
     } else {
+      std::this_thread::yield();
       state_->num_running.fetch_add(1);
       auto back_of_queue = state_->source_generator();
       auto back_of_queue_after_check =
@@ -801,6 +803,7 @@ class ReadaheadGenerator {
 
     void MarkFinishedIfDone(const T& next_result) {
       if (IsIterationEnd(next_result)) {
+        std::this_thread::yield();
         finished.store(true);
       }
     }
