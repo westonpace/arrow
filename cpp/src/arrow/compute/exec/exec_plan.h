@@ -407,11 +407,9 @@ inline Result<ExecNode*> MakeExecNode(
 /// inputs may also be Declarations). The node can be constructed and added to a plan
 /// with Declaration::AddToPlan, which will recursively construct any inputs as necessary.
 struct ARROW_EXPORT Declaration {
-  using Input = std::variant<ExecNode*, Declaration>;
-
   Declaration() {}
 
-  Declaration(std::string factory_name, std::vector<Input> inputs,
+  Declaration(std::string factory_name, std::vector<Declaration> inputs,
               std::shared_ptr<ExecNodeOptions> options, std::string label)
       : factory_name{std::move(factory_name)},
         inputs{std::move(inputs)},
@@ -419,7 +417,7 @@ struct ARROW_EXPORT Declaration {
         label{std::move(label)} {}
 
   template <typename Options>
-  Declaration(std::string factory_name, std::vector<Input> inputs, Options options,
+  Declaration(std::string factory_name, std::vector<Declaration> inputs, Options options,
               std::string label)
       : Declaration{std::move(factory_name), std::move(inputs),
                     std::shared_ptr<ExecNodeOptions>(
@@ -427,7 +425,7 @@ struct ARROW_EXPORT Declaration {
                     std::move(label)} {}
 
   template <typename Options>
-  Declaration(std::string factory_name, std::vector<Input> inputs, Options options)
+  Declaration(std::string factory_name, std::vector<Declaration> inputs, Options options)
       : Declaration{std::move(factory_name), std::move(inputs), std::move(options),
                     /*label=*/""} {}
 
@@ -478,7 +476,7 @@ struct ARROW_EXPORT Declaration {
   bool IsValid(ExecFactoryRegistry* registry = default_exec_factory_registry()) const;
 
   std::string factory_name;
-  std::vector<Input> inputs;
+  std::vector<Declaration> inputs;
   std::shared_ptr<ExecNodeOptions> options;
   std::string label;
 };

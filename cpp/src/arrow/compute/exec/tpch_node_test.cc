@@ -57,8 +57,8 @@ Status AddTableAndSinkToPlan(ExecPlan& plan, TpchGen& gen,
                              AsyncGenerator<std::optional<ExecBatch>>& sink_gen,
                              TableNodeFn table) {
   ARROW_ASSIGN_OR_RAISE(ExecNode * table_node, ((gen.*table)({})));
-  Declaration sink("sink", {Declaration::Input(table_node)}, SinkNodeOptions{&sink_gen});
-  ARROW_RETURN_NOT_OK(sink.AddToPlan(&plan));
+  ARROW_RETURN_NOT_OK(
+      MakeExecNode("sink", &plan, {table_node}, SinkNodeOptions{&sink_gen}));
   return Status::OK();
 }
 

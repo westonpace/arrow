@@ -521,13 +521,8 @@ Result<ExecNode*> Declaration::AddToPlan(ExecPlan* plan,
   std::vector<ExecNode*> inputs(this->inputs.size());
 
   size_t i = 0;
-  for (const Input& input : this->inputs) {
-    if (auto node = std::get_if<ExecNode*>(&input)) {
-      inputs[i++] = *node;
-      continue;
-    }
-    ARROW_ASSIGN_OR_RAISE(inputs[i++],
-                          std::get<Declaration>(input).AddToPlan(plan, registry));
+  for (const Declaration& input : this->inputs) {
+    ARROW_ASSIGN_OR_RAISE(inputs[i++], input.AddToPlan(plan, registry));
   }
 
   ARROW_ASSIGN_OR_RAISE(
@@ -548,7 +543,7 @@ Declaration Declaration::Sequence(std::vector<Declaration> decls) {
     decls.pop_back();
 
     receiver->inputs.emplace_back(std::move(input));
-    receiver = &std::get<Declaration>(receiver->inputs.front());
+    receiver = &receiver->inputs.front();
   }
   return out;
 }

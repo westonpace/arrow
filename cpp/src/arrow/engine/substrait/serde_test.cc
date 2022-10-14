@@ -189,7 +189,7 @@ void CheckRoundTripResult(const std::shared_ptr<Schema> output_schema,
   ASSERT_OK_AND_ASSIGN(auto sink_decls, DeserializePlans(
                                             *buf, [] { return kNullConsumer; },
                                             ext_id_reg, &ext_set, conversion_options));
-  auto& other_declrs = std::get<compute::Declaration>(sink_decls[0].inputs[0]);
+  auto& other_declrs = sink_decls[0].inputs[0];
 
   ASSERT_OK_AND_ASSIGN(auto output_table,
                        GetTableFromPlan(other_declrs, exec_context, output_schema));
@@ -1046,7 +1046,7 @@ TEST(Substrait, DeserializeWithWriteOptionsFactory) {
   compute::Declaration* decl = &declarations[0];
   ASSERT_EQ(decl->factory_name, "write");
   ASSERT_EQ(decl->inputs.size(), 1);
-  decl = std::get_if<compute::Declaration>(&decl->inputs[0]);
+  decl = &decl->inputs[0];
   ASSERT_NE(decl, nullptr);
   ASSERT_EQ(decl->factory_name, "scan");
   ASSERT_OK_AND_ASSIGN(auto plan, compute::ExecPlan::Make());
@@ -1212,7 +1212,7 @@ TEST(Substrait, JoinPlanBasic) {
 
     auto join_decl = sink_decls[0].inputs[0];
 
-    const auto& join_rel = std::get<compute::Declaration>(join_decl);
+    const auto& join_rel = join_decl;
 
     const auto& join_options =
         checked_cast<const compute::HashJoinNodeOptions&>(*join_rel.options);
@@ -1220,8 +1220,8 @@ TEST(Substrait, JoinPlanBasic) {
     EXPECT_EQ(join_rel.factory_name, "hashjoin");
     EXPECT_EQ(join_options.join_type, compute::JoinType::INNER);
 
-    const auto& left_rel = std::get<compute::Declaration>(join_rel.inputs[0]);
-    const auto& right_rel = std::get<compute::Declaration>(join_rel.inputs[1]);
+    const auto& left_rel = join_rel.inputs[0];
+    const auto& right_rel = join_rel.inputs[1];
 
     const auto& l_options =
         checked_cast<const dataset::ScanNodeOptions&>(*left_rel.options);
@@ -1578,7 +1578,7 @@ TEST(Substrait, AggregateBasic) {
                        DeserializePlans(*buf, [] { return kNullConsumer; }));
   auto agg_decl = sink_decls[0].inputs[0];
 
-  const auto& agg_rel = std::get<compute::Declaration>(agg_decl);
+  const auto& agg_rel = agg_decl;
 
   const auto& agg_options =
       checked_cast<const compute::AggregateNodeOptions&>(*agg_rel.options);
@@ -1964,8 +1964,7 @@ TEST(Substrait, BasicPlanRoundTripping) {
       DeserializePlans(
           *serialized_plan, [] { return kNullConsumer; }, ext_id_reg, &ext_set));
   // filter declaration
-  const auto& roundtripped_filter =
-      std::get<compute::Declaration>(sink_decls[0].inputs[0]);
+  const auto& roundtripped_filter = sink_decls[0].inputs[0];
   const auto& filter_opts =
       checked_cast<const compute::FilterNodeOptions&>(*(roundtripped_filter.options));
   auto roundtripped_expr = filter_opts.filter_expression;
@@ -1979,8 +1978,7 @@ TEST(Substrait, BasicPlanRoundTripping) {
     EXPECT_EQ(dummy_schema->field_names()[right_index], filter_col_right);
   }
   // scan declaration
-  const auto& roundtripped_scan =
-      std::get<compute::Declaration>(roundtripped_filter.inputs[0]);
+  const auto& roundtripped_scan = roundtripped_filter.inputs[0];
   const auto& dataset_opts =
       checked_cast<const dataset::ScanNodeOptions&>(*(roundtripped_scan.options));
   const auto& roundripped_ds = dataset_opts.dataset;
@@ -2078,7 +2076,7 @@ TEST(Substrait, BasicPlanRoundTrippingEndToEnd) {
       DeserializePlans(
           *serialized_plan, [] { return kNullConsumer; }, ext_id_reg, &ext_set));
   // filter declaration
-  auto& roundtripped_filter = std::get<compute::Declaration>(sink_decls[0].inputs[0]);
+  auto& roundtripped_filter = sink_decls[0].inputs[0];
   const auto& filter_opts =
       checked_cast<const compute::FilterNodeOptions&>(*(roundtripped_filter.options));
   auto roundtripped_expr = filter_opts.filter_expression;
@@ -2092,8 +2090,7 @@ TEST(Substrait, BasicPlanRoundTrippingEndToEnd) {
     EXPECT_EQ(dummy_schema->field_names()[right_index], filter_col_right);
   }
   // scan declaration
-  const auto& roundtripped_scan =
-      std::get<compute::Declaration>(roundtripped_filter.inputs[0]);
+  const auto& roundtripped_scan = roundtripped_filter.inputs[0];
   const auto& dataset_opts =
       checked_cast<const dataset::ScanNodeOptions&>(*(roundtripped_scan.options));
   const auto& roundripped_ds = dataset_opts.dataset;
