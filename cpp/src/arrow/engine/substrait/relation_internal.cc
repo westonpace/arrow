@@ -113,6 +113,7 @@ Status DiscoverFilesFromDir(const std::shared_ptr<fs::LocalFileSystem>& local_fs
                             const std::string& dirpath,
                             std::vector<fs::FileInfo>* rel_fpaths) {
   // Define a selector for a recursive descent
+  fs::FileSelector selector;
   selector.base_dir = dirpath;
   selector.recursive = true;
 
