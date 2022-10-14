@@ -72,7 +72,7 @@ Result<DeclarationInfo> ProcessEmit(const RelMessage& rel,
                                     const std::shared_ptr<Schema>& schema) {
   if (rel.has_common()) {
     switch (rel.common().emit_kind_case()) {
-      case substrait::RelCommon::EmitKindCase::kDirect:
+      case ::substrait::RelCommon::EmitKindCase::kDirect:
         return no_emit_declr;
       case substrait::RelCommon::EmitKindCase::kEmit: {
         ARROW_ASSIGN_OR_RAISE(auto emit_info, GetEmitInfo(rel, schema));
@@ -113,7 +113,6 @@ Status DiscoverFilesFromDir(const std::shared_ptr<fs::LocalFileSystem>& local_fs
                             const std::string& dirpath,
                             std::vector<fs::FileInfo>* rel_fpaths) {
   // Define a selector for a recursive descent
-  fs::FileSelector selector;
   selector.base_dir = dirpath;
   selector.recursive = true;
 
@@ -129,14 +128,12 @@ Status DiscoverFilesFromDir(const std::shared_ptr<fs::LocalFileSystem>& local_fs
 
 Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet& ext_set,
                                   const ConversionOptions& conversion_options) {
-  static bool dataset_init = false;
   if (!dataset_init) {
     dataset_init = true;
-    dataset::internal::Initialize();
   }
 
   switch (rel.rel_type_case()) {
-    case substrait::Rel::RelTypeCase::kRead: {
+    case ::substrait::Rel::RelTypeCase::kRead: {
       const auto& read = rel.read();
       RETURN_NOT_OK(CheckRelCommon(read, conversion_options));
 
@@ -169,7 +166,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
 
         const NamedTableProvider& named_table_provider =
             conversion_options.named_table_provider;
-        const substrait::ReadRel::NamedTable& named_table = read.named_table();
+        const ::substrait::ReadRel::NamedTable& named_table = read.named_table();
         std::vector<std::string> table_names(named_table.names().begin(),
                                              named_table.names().end());
         ARROW_ASSIGN_OR_RAISE(compute::Declaration source_decl,
@@ -330,7 +327,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
                          std::move(base_schema));
     }
 
-    case substrait::Rel::RelTypeCase::kFilter: {
+    case ::substrait::Rel::RelTypeCase::kFilter: {
       const auto& filter = rel.filter();
       RETURN_NOT_OK(CheckRelCommon(filter, conversion_options));
 
@@ -356,7 +353,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
                          input.output_schema);
     }
 
-    case substrait::Rel::RelTypeCase::kProject: {
+    case ::substrait::Rel::RelTypeCase::kProject: {
       const auto& project = rel.project();
       RETURN_NOT_OK(CheckRelCommon(project, conversion_options));
       if (!project.has_input()) {
@@ -410,7 +407,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
                          std::move(project_schema));
     }
 
-    case substrait::Rel::RelTypeCase::kJoin: {
+    case ::substrait::Rel::RelTypeCase::kJoin: {
       const auto& join = rel.join();
       RETURN_NOT_OK(CheckRelCommon(join, conversion_options));
 
@@ -424,24 +421,24 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
 
       compute::JoinType join_type;
       switch (join.type()) {
-        case substrait::JoinRel::JOIN_TYPE_UNSPECIFIED:
+        case ::substrait::JoinRel::JOIN_TYPE_UNSPECIFIED:
           return Status::NotImplemented("Unspecified join type is not supported");
-        case substrait::JoinRel::JOIN_TYPE_INNER:
+        case ::substrait::JoinRel::JOIN_TYPE_INNER:
           join_type = compute::JoinType::INNER;
           break;
-        case substrait::JoinRel::JOIN_TYPE_OUTER:
+        case ::substrait::JoinRel::JOIN_TYPE_OUTER:
           join_type = compute::JoinType::FULL_OUTER;
           break;
-        case substrait::JoinRel::JOIN_TYPE_LEFT:
+        case ::substrait::JoinRel::JOIN_TYPE_LEFT:
           join_type = compute::JoinType::LEFT_OUTER;
           break;
-        case substrait::JoinRel::JOIN_TYPE_RIGHT:
+        case ::substrait::JoinRel::JOIN_TYPE_RIGHT:
           join_type = compute::JoinType::RIGHT_OUTER;
           break;
-        case substrait::JoinRel::JOIN_TYPE_SEMI:
+        case ::substrait::JoinRel::JOIN_TYPE_SEMI:
           join_type = compute::JoinType::LEFT_SEMI;
           break;
-        case substrait::JoinRel::JOIN_TYPE_ANTI:
+        case ::substrait::JoinRel::JOIN_TYPE_ANTI:
           join_type = compute::JoinType::LEFT_ANTI;
           break;
         default:
@@ -506,7 +503,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       return ProcessEmit(std::move(join), std::move(join_declaration),
                          std::move(join_schema));
     }
-    case substrait::Rel::RelTypeCase::kAggregate: {
+    case ::substrait::Rel::RelTypeCase::kAggregate: {
       const auto& aggregate = rel.aggregate();
       RETURN_NOT_OK(CheckRelCommon(aggregate, conversion_options));
 
@@ -529,7 +526,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       std::vector<int> key_field_ids;
       std::vector<FieldRef> keys;
       if (aggregate.groupings_size() > 0) {
-        const substrait::AggregateRel::Grouping& group = aggregate.groupings(0);
+        const ::substrait::AggregateRel::Grouping& group = aggregate.groupings(0);
         int grouping_expr_size = group.grouping_expressions_size();
         keys.reserve(grouping_expr_size);
         key_field_ids.reserve(grouping_expr_size);
@@ -609,14 +606,14 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
                          std::move(aggregate_schema));
     }
 
-    case substrait::Rel::RelTypeCase::kExtensionLeaf: {
+    case ::substrait::Rel::RelTypeCase::kExtensionLeaf: {
       const auto& ext = rel.extension_leaf();
       ARROW_ASSIGN_OR_RAISE(
           auto ext_leaf_decl,
           conversion_options.extension_provider->MakeRel({}, ext.detail(), ext_set));
       return ProcessEmit(ext, std::move(ext_leaf_decl), ext_leaf_decl.output_schema);
     }
-    case substrait::Rel::RelTypeCase::kExtensionSingle: {
+    case ::substrait::Rel::RelTypeCase::kExtensionSingle: {
       const auto& ext = rel.extension_single();
       ARROW_ASSIGN_OR_RAISE(DeclarationInfo input,
                             FromProto(ext.input(), ext_set, conversion_options));
@@ -625,7 +622,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
           conversion_options.extension_provider->MakeRel({input}, ext.detail(), ext_set));
       return ProcessEmit(ext, std::move(ext_single_decl), ext_single_decl.output_schema);
     }
-    case substrait::Rel::RelTypeCase::kExtensionMulti: {
+    case ::substrait::Rel::RelTypeCase::kExtensionMulti: {
       const auto& ext = rel.extension_multi();
       std::vector<DeclarationInfo> inputs;
       for (const auto& input : ext.inputs()) {
@@ -668,10 +665,10 @@ Result<std::shared_ptr<Schema>> ExtractSchemaToBind(const compute::Declaration& 
   return bind_schema;
 }
 
-Result<std::unique_ptr<substrait::ReadRel>> ScanRelationConverter(
+Result<std::unique_ptr<::substrait::ReadRel>> ScanRelationConverter(
     const std::shared_ptr<Schema>& schema, const compute::Declaration& declaration,
     ExtensionSet* ext_set, const ConversionOptions& conversion_options) {
-  auto read_rel = std::make_unique<substrait::ReadRel>();
+  auto read_rel = std::make_unique<::substrait::ReadRel>();
   const auto& scan_node_options =
       checked_cast<const dataset::ScanNodeOptions&>(*declaration.options);
   auto dataset =
@@ -687,22 +684,22 @@ Result<std::unique_ptr<substrait::ReadRel>> ScanRelationConverter(
   read_rel->set_allocated_base_schema(named_struct.release());
 
   // set local files
-  auto read_rel_lfs = std::make_unique<substrait::ReadRel::LocalFiles>();
+  auto read_rel_lfs = std::make_unique<::substrait::ReadRel::LocalFiles>();
   for (const auto& file : dataset->files()) {
     auto read_rel_lfs_ffs =
-        std::make_unique<substrait::ReadRel::LocalFiles::FileOrFiles>();
+        std::make_unique<::substrait::ReadRel::LocalFiles::FileOrFiles>();
     read_rel_lfs_ffs->set_uri_path(UriFromAbsolutePath(file));
     // set file format
     auto format_type_name = dataset->format()->type_name();
     if (format_type_name == "parquet") {
       read_rel_lfs_ffs->set_allocated_parquet(
-          new substrait::ReadRel::LocalFiles::FileOrFiles::ParquetReadOptions());
+          new ::substrait::ReadRel::LocalFiles::FileOrFiles::ParquetReadOptions());
     } else if (format_type_name == "ipc") {
       read_rel_lfs_ffs->set_allocated_arrow(
-          new substrait::ReadRel::LocalFiles::FileOrFiles::ArrowReadOptions());
+          new ::substrait::ReadRel::LocalFiles::FileOrFiles::ArrowReadOptions());
     } else if (format_type_name == "orc") {
       read_rel_lfs_ffs->set_allocated_orc(
-          new substrait::ReadRel::LocalFiles::FileOrFiles::OrcReadOptions());
+          new ::substrait::ReadRel::LocalFiles::FileOrFiles::OrcReadOptions());
     } else {
       return Status::NotImplemented("Unsupported file type: ", format_type_name);
     }
@@ -712,10 +709,10 @@ Result<std::unique_ptr<substrait::ReadRel>> ScanRelationConverter(
   return std::move(read_rel);
 }
 
-Result<std::unique_ptr<substrait::FilterRel>> FilterRelationConverter(
+Result<std::unique_ptr<::substrait::FilterRel>> FilterRelationConverter(
     const std::shared_ptr<Schema>& schema, const compute::Declaration& declaration,
     ExtensionSet* ext_set, const ConversionOptions& conversion_options) {
-  auto filter_rel = std::make_unique<substrait::FilterRel>();
+  auto filter_rel = std::make_unique<::substrait::FilterRel>();
   const auto& filter_node_options =
       checked_cast<const compute::FilterNodeOptions&>(*(declaration.options));
 
@@ -746,7 +743,7 @@ Result<std::unique_ptr<substrait::FilterRel>> FilterRelationConverter(
 
 Status SerializeAndCombineRelations(const compute::Declaration& declaration,
                                     ExtensionSet* ext_set,
-                                    std::unique_ptr<substrait::Rel>* rel,
+                                    std::unique_ptr<::substrait::Rel>* rel,
                                     const ConversionOptions& conversion_options) {
   const auto& factory_name = declaration.factory_name;
   ARROW_ASSIGN_OR_RAISE(auto schema, ExtractSchemaToBind(declaration));
@@ -778,10 +775,10 @@ Status SerializeAndCombineRelations(const compute::Declaration& declaration,
   return Status::OK();
 }
 
-Result<std::unique_ptr<substrait::Rel>> ToProto(
+Result<std::unique_ptr<::substrait::Rel>> ToProto(
     const compute::Declaration& declr, ExtensionSet* ext_set,
     const ConversionOptions& conversion_options) {
-  auto rel = std::make_unique<substrait::Rel>();
+  auto rel = std::make_unique<::substrait::Rel>();
   RETURN_NOT_OK(SerializeAndCombineRelations(declr, ext_set, &rel, conversion_options));
   return std::move(rel);
 }
