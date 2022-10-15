@@ -2492,6 +2492,7 @@ cdef extern from "arrow/compute/exec/aggregate.h" namespace \
 
     CResult[CDatum] GroupBy(const vector[CDatum]& arguments,
                             const vector[CDatum]& keys,
+                            const vector[CDatum]& segment_keys,
                             const vector[CAggregate]& aggregates)
 
 
