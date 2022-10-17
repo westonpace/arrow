@@ -197,6 +197,11 @@ TEST(FunctionMapping, ValidCases) {
        {int8(), int8()},
        "0",
        int8()},
+      {{kSubstraitArithmeticFunctionsUri, "sign"},
+       {"SILENT", "-1"},
+       {nullptr, int8()},
+       "-1",
+       int8()},
       {{kSubstraitBooleanFunctionsUri, "or"},
        {"1", ""},
        kNoOptions,
@@ -395,6 +400,16 @@ TEST(FunctionMapping, ValidCases) {
        {"SILENT","10", "10"},
        {nullptr, int8(), int8()},
        "1",
+       float64()},
+      {{kSubstraitRoundingFunctionsUri, "floor"},
+       {"SILENT","3.1"},
+       {nullptr, float64()},
+       "3",
+       float64()},
+      {{kSubstraitRoundingFunctionsUri, "ceil"},
+       {"SILENT","3.1"},
+       {nullptr, float64()},
+       "4",
        float64()}
       };
   CheckValidTestCases(valid_test_cases);
