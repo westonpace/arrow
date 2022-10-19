@@ -714,7 +714,7 @@ TEST(ExecPlanExecution, StressSourceSink) {
 }
 
 TEST(ExecPlanExecution, StressSourceOrderBy) {
-  auto input_schema = schema({field("a", int32()), field("b", boolean())});
+  auto input_schema = schema({field("a", int32())});
   for (bool slow : {false, true}) {
     SCOPED_TRACE(slow ? "slowed" : "unslowed");
 
