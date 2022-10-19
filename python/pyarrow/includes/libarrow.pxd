@@ -2581,9 +2581,9 @@ cdef extern from "arrow/compute/exec/exec_plan.h" namespace "arrow::compute" nog
 
     cdef cppclass CExecPlan "arrow::compute::ExecPlan":
         @staticmethod
-        CResult[shared_ptr[CExecPlan]] Make(CExecContext* exec_context)
+        CResult[shared_ptr[CExecPlan]] Make()
 
-        CStatus StartProducing()
+        CStatus StartProducing(CExecutor* executor)
         CStatus Validate()
         CStatus StopProducing()
 

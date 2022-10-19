@@ -82,7 +82,7 @@ cdef execplan(inputs, output_type, vector[CDeclaration] plan, c_bool use_threads
 
     c_exec_context = make_shared[CExecContext](
         c_default_memory_pool(), c_executor)
-    c_exec_plan = GetResultValue(CExecPlan.Make(c_exec_context.get()))
+    c_exec_plan = GetResultValue(CExecPlan.Make())
 
     plan_iter = plan.begin()
 
@@ -145,7 +145,7 @@ cdef execplan(inputs, output_type, vector[CDeclaration] plan, c_bool use_threads
 
     # Start execution of the ExecPlan
     deref(c_exec_plan).Validate()
-    deref(c_exec_plan).StartProducing()
+    deref(c_exec_plan).StartProducing(c_executor)
 
     # Convert output to the expected one.
     c_out_table = GetResultValue(
