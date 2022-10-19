@@ -681,7 +681,7 @@ Future<std::shared_ptr<Table>> AsyncScanner::ToTableAsync(Executor* cpu_executor
 Result<int64_t> AsyncScanner::CountRows() {
   ARROW_ASSIGN_OR_RAISE(auto fragment_gen, GetFragments());
   if (!scan_options_->use_threads) {
-    return Status::NotImplemented("CountRows wihthout use_threads=false");
+    return Status::NotImplemented("CountRows without use_threads=false");
   }
 
   compute::ExecContext exec_context(scan_options_->pool,
