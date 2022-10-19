@@ -136,7 +136,8 @@ class ARROW_EXPORT ExecPlan : public std::enable_shared_from_this<ExecPlan> {
   ///
   /// Nodes are started in reverse topological order, such that any node
   /// is started before all of its inputs.
-  Status StartProducing(::arrow::internal::Executor* executor);
+  Status StartProducing(
+      ::arrow::internal::Executor* executor = ::arrow::internal::GetCpuThreadPool());
 
   /// \brief Stop producing on all nodes
   ///
