@@ -2254,18 +2254,9 @@ TEST(SubstraitRoundTrip, BasicPlanEndToEnd) {
   EXPECT_TRUE(expected_table->Equals(*rnd_trp_table));
 }
 
-/// \brief Create a NamedTableProvider that provides `table` regardless of the name
-NamedTableProvider AlwaysProvideSameTable(std::shared_ptr<Table> table) {
-  return [table = std::move(table)](const std::vector<std::string>&) {
-    std::shared_ptr<compute::ExecNodeOptions> options =
-        std::make_shared<compute::TableSourceNodeOptions>(table);
-    return compute::Declaration("table_source", {}, options, "mock_source");
-  };
-}
-
 TEST(SubstraitRoundTrip, ProjectRel) {
-#ifdef _WIN32 GTEST_SKIP()
-  << "ARROW-16392: Substrait File URI not supported for Windows";
+#ifdef _WIN32
+  GTEST_SKIP() << "ARROW-16392: Substrait File URI not supported for Windows";
 #endif
   compute::ExecContext exec_context;
   auto dummy_schema =
