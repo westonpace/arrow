@@ -33,8 +33,8 @@ class DefaultExtensionProvider : public ExtensionProvider {
   Result<DeclarationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
                                   const google::protobuf::Any& rel,
                                   const ExtensionSet& ext_set) override {
-    if (rel.Is<arrow::substrait::AsOfJoinRel>()) {
-      arrow::substrait::AsOfJoinRel as_of_join_rel;
+    if (rel.Is<substrait_ext::AsOfJoinRel>()) {
+      substrait_ext::AsOfJoinRel as_of_join_rel;
       rel.UnpackTo(&as_of_join_rel);
       return MakeAsOfJoinRel(inputs, as_of_join_rel, ext_set);
     }
@@ -45,7 +45,7 @@ class DefaultExtensionProvider : public ExtensionProvider {
  private:
   Result<DeclarationInfo> MakeAsOfJoinRel(
       const std::vector<DeclarationInfo>& inputs,
-      const arrow::substrait::AsOfJoinRel& as_of_join_rel, const ExtensionSet& ext_set) {
+      const substrait_ext::AsOfJoinRel& as_of_join_rel, const ExtensionSet& ext_set) {
     if (inputs.size() < 2) {
       return Status::Invalid("::substrait::AsOfJoinNode too few input tables: ",
                              inputs.size());

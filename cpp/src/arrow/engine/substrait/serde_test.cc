@@ -3752,7 +3752,7 @@ TEST(Substrait, PlanWithExtension) {
               }
             ],
             "detail": {
-              "@type": "/arrow.substrait.AsOfJoinRel",
+              "@type": "/arrow.substrait_ext.AsOfJoinRel",
               "input_keys" : [
                 {
                   "on": {

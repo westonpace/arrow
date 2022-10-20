@@ -38,7 +38,7 @@ namespace engine {
 /// \param[in,out] plan the Substrait plan message that is to be updated
 /// \return success or failure
 ARROW_ENGINE_EXPORT
-Status AddExtensionSetToPlan(const ExtensionSet& ext_set, ::substrait::Plan* plan);
+Status AddExtensionSetToPlan(const ExtensionSet& ext_set, substrait::Plan* plan);
 
 /// \brief Interprets the extension information of a Substrait Plan message into an
 /// ExtensionSet.
@@ -50,10 +50,10 @@ Status AddExtensionSetToPlan(const ExtensionSet& ext_set, ::substrait::Plan* pla
 /// correspond to Substrait's URI/name pairs
 ARROW_ENGINE_EXPORT
 Result<ExtensionSet> GetExtensionSetFromPlan(
-    const ::substrait::Plan& plan, const ConversionOptions& conversion_options,
+    const substrait::Plan& plan, const ConversionOptions& conversion_options,
     const ExtensionIdRegistry* registry = default_extension_id_registry());
 
-/// \brief Serialize a declaration into a ::substrait::Plan.
+/// \brief Serialize a declaration into a substrait::Plan.
 ///
 /// Note that, this is a part of a roundtripping test API and not
 /// designed for use in production

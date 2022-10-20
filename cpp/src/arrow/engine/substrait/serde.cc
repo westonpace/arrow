@@ -159,7 +159,7 @@ Result<std::vector<compute::Declaration>> DeserializePlans(
                         GetExtensionSetFromPlan(plan, conversion_options, registry));
 
   std::vector<compute::Declaration> sink_decls;
-  for (const ::substrait::PlanRel& plan_rel : plan.relations()) {
+  for (const substrait::PlanRel& plan_rel : plan.relations()) {
     ARROW_ASSIGN_OR_RAISE(
         auto decl_info,
         FromProto(plan_rel.has_root() ? plan_rel.root().input() : plan_rel.rel(), ext_set,

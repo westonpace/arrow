@@ -50,7 +50,7 @@ Result<std::unique_ptr<::substrait::ReadRel>> CreateRead(const Table& table,
   return read;
 }
 
-void CreateDirectReference(int32_t index, ::substrait::Expression* expr) {
+void CreateDirectReference(int32_t index, substrait::Expression* expr) {
   auto reference = std::make_unique<::substrait::Expression::FieldReference>();
   auto reference_segment = std::make_unique<::substrait::Expression::ReferenceSegment>();
   auto struct_field =
@@ -79,7 +79,7 @@ Result<std::unique_ptr<::substrait::ProjectRel>> CreateProject(
   std::size_t arg_index = 0;
   std::size_t table_arg_index = 0;
   for (const std::shared_ptr<DataType>& arg_type : arg_types) {
-    ::substrait::FunctionArgument* argument = call->add_arguments();
+    substrait::FunctionArgument* argument = call->add_arguments();
     if (arg_type) {
       // If it has a type then it's a reference to the input table
       auto expression = std::make_unique<::substrait::Expression>();
@@ -107,7 +107,7 @@ Result<std::unique_ptr<::substrait::ProjectRel>> CreateProject(
       ToProto(output_type, /*nullable=*/true, ext_set, kPlanBuilderConversionOptions));
   call->set_allocated_output_type(output_type_substrait.release());
 
-  ::substrait::Expression* call_expression = project->add_expressions();
+  substrait::Expression* call_expression = project->add_expressions();
   call_expression->set_allocated_scalar_function(call.release());
 
   return project;
@@ -121,27 +121,27 @@ Result<std::unique_ptr<::substrait::AggregateRel>> CreateAgg(Id function_id,
   auto agg = std::make_unique<::substrait::AggregateRel>();
 
   if (!keys.empty()) {
-    ::substrait::AggregateRel::Grouping* grouping = agg->add_groupings();
+    substrait::AggregateRel::Grouping* grouping = agg->add_groupings();
     for (int key : keys) {
-      ::substrait::Expression* key_expr = grouping->add_grouping_expressions();
+      substrait::Expression* key_expr = grouping->add_grouping_expressions();
       CreateDirectReference(key, key_expr);
     }
   }
 
-  ::substrait::AggregateRel::Measure* measure_wrapper = agg->add_measures();
+  substrait::AggregateRel::Measure* measure_wrapper = agg->add_measures();
   auto agg_func = std::make_unique<::substrait::AggregateFunction>();
   ARROW_ASSIGN_OR_RAISE(uint32_t function_anchor, ext_set->EncodeFunction(function_id));
 
   agg_func->set_function_reference(function_anchor);
 
-  ::substrait::FunctionArgument* arg = agg_func->add_arguments();
+  substrait::FunctionArgument* arg = agg_func->add_arguments();
   auto arg_expr = std::make_unique<::substrait::Expression>();
   CreateDirectReference(arg_idx, arg_expr.get());
   arg->set_allocated_value(arg_expr.release());
 
   agg_func->set_phase(::substrait::AggregationPhase::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   agg_func->set_invocation(
-      ::substrait::AggregateFunction::AggregationInvocation::
+      substrait::AggregateFunction::AggregationInvocation::
           AggregateFunction_AggregationInvocation_AGGREGATION_INVOCATION_ALL);
 
   ARROW_ASSIGN_OR_RAISE(
@@ -167,7 +167,7 @@ Result<std::unique_ptr<substrait::Plan>> CreatePlan(std::unique_ptr<substrait::R
   auto plan = std::make_unique<substrait::Plan>();
   plan->set_allocated_version(CreateTestVersion().release());
 
-  ::substrait::PlanRel* plan_rel = plan->add_relations();
+  substrait::PlanRel* plan_rel = plan->add_relations();
   auto rel_root = std::make_unique<::substrait::RelRoot>();
   rel_root->set_allocated_input(root.release());
   plan_rel->set_allocated_root(rel_root.release());

@@ -41,7 +41,7 @@ struct ARROW_ENGINE_EXPORT DeclarationInfo {
 
 /// \brief Convert a Substrait Rel object to an Acero declaration
 ARROW_ENGINE_EXPORT
-Result<DeclarationInfo> FromProto(const ::substrait::Rel&, const ExtensionSet&,
+Result<DeclarationInfo> FromProto(const substrait::Rel&, const ExtensionSet&,
                                   const ConversionOptions&);
 
 /// \brief Convert an Acero Declaration to a Substrait Rel

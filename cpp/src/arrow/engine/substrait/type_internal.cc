@@ -36,7 +36,7 @@ namespace {
 template <typename TypeMessage>
 bool IsNullable(const TypeMessage& type) {
   // FIXME what can we do with NULLABILITY_UNSPECIFIED
-  return type.nullability() != ::substrait::Type::NULLABILITY_REQUIRED;
+  return type.nullability() != substrait::Type::NULLABILITY_REQUIRED;
 }
 
 template <typename ArrowType, typename TypeMessage, typename... A>
@@ -87,67 +87,67 @@ Result<FieldVector> FieldsFromProto(int size, const Types& types,
 }  // namespace
 
 Result<std::pair<std::shared_ptr<DataType>, bool>> FromProto(
-    const ::substrait::Type& type, const ExtensionSet& ext_set,
+    const substrait::Type& type, const ExtensionSet& ext_set,
     const ConversionOptions& conversion_options) {
   switch (type.kind_case()) {
-    case ::substrait::Type::kBool:
+    case substrait::Type::kBool:
       return FromProtoImpl<BooleanType>(type.bool_());
 
-    case ::substrait::Type::kI8:
+    case substrait::Type::kI8:
       return FromProtoImpl<Int8Type>(type.i8());
-    case ::substrait::Type::kI16:
+    case substrait::Type::kI16:
       return FromProtoImpl<Int16Type>(type.i16());
-    case ::substrait::Type::kI32:
+    case substrait::Type::kI32:
       return FromProtoImpl<Int32Type>(type.i32());
-    case ::substrait::Type::kI64:
+    case substrait::Type::kI64:
       return FromProtoImpl<Int64Type>(type.i64());
 
-    case ::substrait::Type::kFp32:
+    case substrait::Type::kFp32:
       return FromProtoImpl<FloatType>(type.fp32());
-    case ::substrait::Type::kFp64:
+    case substrait::Type::kFp64:
       return FromProtoImpl<DoubleType>(type.fp64());
 
-    case ::substrait::Type::kString:
+    case substrait::Type::kString:
       return FromProtoImpl<StringType>(type.string());
-    case ::substrait::Type::kBinary:
+    case substrait::Type::kBinary:
       return FromProtoImpl<BinaryType>(type.binary());
 
-    case ::substrait::Type::kTimestamp:
+    case substrait::Type::kTimestamp:
       return FromProtoImpl<TimestampType>(type.timestamp(), TimeUnit::MICRO);
-    case ::substrait::Type::kTimestampTz:
+    case substrait::Type::kTimestampTz:
       return FromProtoImpl<TimestampType>(type.timestamp_tz(), TimeUnit::MICRO,
                                           TimestampTzTimezoneString());
-    case ::substrait::Type::kDate:
+    case substrait::Type::kDate:
       return FromProtoImpl<Date32Type>(type.date());
 
-    case ::substrait::Type::kTime:
+    case substrait::Type::kTime:
       return FromProtoImpl<Time64Type>(type.time(), TimeUnit::MICRO);
 
-    case ::substrait::Type::kIntervalYear:
+    case substrait::Type::kIntervalYear:
       return FromProtoImpl(type.interval_year(), interval_year);
 
-    case ::substrait::Type::kIntervalDay:
+    case substrait::Type::kIntervalDay:
       return FromProtoImpl(type.interval_day(), interval_day);
 
-    case ::substrait::Type::kUuid:
+    case substrait::Type::kUuid:
       return FromProtoImpl(type.uuid(), uuid);
 
-    case ::substrait::Type::kFixedChar:
+    case substrait::Type::kFixedChar:
       return FromProtoImpl(type.fixed_char(), fixed_char, type.fixed_char().length());
 
-    case ::substrait::Type::kVarchar:
+    case substrait::Type::kVarchar:
       return FromProtoImpl(type.varchar(), varchar, type.varchar().length());
 
-    case ::substrait::Type::kFixedBinary:
+    case substrait::Type::kFixedBinary:
       return FromProtoImpl<FixedSizeBinaryType>(type.fixed_binary(),
                                                 type.fixed_binary().length());
 
-    case ::substrait::Type::kDecimal: {
+    case substrait::Type::kDecimal: {
       const auto& decimal = type.decimal();
       return FromProtoImpl<Decimal128Type>(decimal, decimal.precision(), decimal.scale());
     }
 
-    case ::substrait::Type::kStruct: {
+    case substrait::Type::kStruct: {
       const auto& struct_ = type.struct_();
 
       ARROW_ASSIGN_OR_RAISE(
@@ -158,7 +158,7 @@ Result<std::pair<std::shared_ptr<DataType>, bool>> FromProto(
       return FromProtoImpl<StructType>(struct_, std::move(fields));
     }
 
-    case ::substrait::Type::kList: {
+    case substrait::Type::kList: {
       const auto& list = type.list();
 
       if (!list.has_type()) {
@@ -173,7 +173,7 @@ Result<std::pair<std::shared_ptr<DataType>, bool>> FromProto(
           list, field("item", std::move(type_nullable.first), type_nullable.second));
     }
 
-    case ::substrait::Type::kMap: {
+    case substrait::Type::kMap: {
       const auto& map = type.map();
 
       static const std::array<char const*, 4> kMissing = {"key and value", "value", "key",
@@ -199,7 +199,7 @@ Result<std::pair<std::shared_ptr<DataType>, bool>> FromProto(
           field("value", std::move(value_nullable.first), value_nullable.second));
     }
 
-    case ::substrait::Type::kUserDefined: {
+    case substrait::Type::kUserDefined: {
       const auto& user_defined = type.user_defined();
       uint32_t anchor = user_defined.type_reference();
       ARROW_ASSIGN_OR_RAISE(auto type_record, ext_set.DecodeType(anchor));
@@ -378,8 +378,8 @@ struct DataTypeToProtoImpl {
   template <typename Sub>
   Sub* SetWithThen(void (::substrait::Type::*set_allocated_sub)(Sub*)) {
     auto sub = std::make_unique<Sub>();
-    sub->set_nullability(nullable_ ? ::substrait::Type::NULLABILITY_NULLABLE
-                                   : ::substrait::Type::NULLABILITY_REQUIRED);
+    sub->set_nullability(nullable_ ? substrait::Type::NULLABILITY_NULLABLE
+                                   : substrait::Type::NULLABILITY_REQUIRED);
 
     auto out = sub.get();
     (type_->*set_allocated_sub)(sub.release());
@@ -396,19 +396,19 @@ struct DataTypeToProtoImpl {
     ARROW_ASSIGN_OR_RAISE(auto anchor, ext_set_->EncodeType(t));
     auto user_defined = std::make_unique<::substrait::Type::UserDefined>();
     user_defined->set_type_reference(anchor);
-    user_defined->set_nullability(nullable_ ? ::substrait::Type::NULLABILITY_NULLABLE
-                                            : ::substrait::Type::NULLABILITY_REQUIRED);
+    user_defined->set_nullability(nullable_ ? substrait::Type::NULLABILITY_NULLABLE
+                                            : substrait::Type::NULLABILITY_REQUIRED);
     type_->set_allocated_user_defined(user_defined.release());
     return Status::OK();
   }
 
   Status NotImplemented(const DataType& t) {
-    return Status::NotImplemented("conversion to ::substrait::Type from ", t.ToString());
+    return Status::NotImplemented("conversion to substrait::Type from ", t.ToString());
   }
 
   Status operator()(const DataType& type) { return VisitTypeInline(type, this); }
 
-  ::substrait::Type* type_;
+  substrait::Type* type_;
   bool nullable_;
   ExtensionSet* ext_set_;
   const ConversionOptions& conversion_options_;
@@ -424,7 +424,7 @@ Result<std::unique_ptr<::substrait::Type>> ToProto(
   return std::move(out);
 }
 
-Result<std::shared_ptr<Schema>> FromProto(const ::substrait::NamedStruct& named_struct,
+Result<std::shared_ptr<Schema>> FromProto(const substrait::NamedStruct& named_struct,
                                           const ExtensionSet& ext_set,
                                           const ConversionOptions& conversion_options) {
   if (!named_struct.has_struct_()) {
