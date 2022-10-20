@@ -1847,7 +1847,7 @@ TEST(Substrait, AggregateInvalidAggFuncArgs) {
           "measures": [{
             "measure": {
               "functionReference": 0,
-              "args": [],
+              "arguments": [],
               "sorts": [],
               "phase": "AGGREGATION_PHASE_INITIAL_TO_RESULT",
               "invocation": "AGGREGATION_INVOCATION_ALL",
@@ -1921,7 +1921,7 @@ TEST(Substrait, AggregateWithFilter) {
           "measures": [{
             "measure": {
               "functionReference": 0,
-              "args": [],
+              "arguments": [],
               "sorts": [],
               "phase": "AGGREGATION_PHASE_INITIAL_TO_RESULT",
               "invocation": "AGGREGATION_INVOCATION_ALL",
@@ -1995,7 +1995,7 @@ TEST(Substrait, AggregateBadPhase) {
           "measures": [{
             "measure": {
               "functionReference": 0,
-              "args": [],
+              "arguments": [],
               "sorts": [],
               "phase": "AGGREGATION_PHASE_INITIAL_TO_RESULT",
               "invocation": "AGGREGATION_INVOCATION_DISTINCT",
@@ -3228,7 +3228,7 @@ TEST(Substrait, IsthmusPlan) {
       "extensionFunction": {
         "extensionUriReference": 1,
         "functionAnchor": 0,
-        "name": "add:opt_i32_i32"
+        "name": "add:i32_i32"
       }
     }],
     "relations": [{
@@ -3267,7 +3267,6 @@ TEST(Substrait, IsthmusPlan) {
             "expressions": [{
               "scalarFunction": {
                 "functionReference": 0,
-                "args": [],
                 "outputType": {
                   "i32": {
                     "typeVariationReference": 0,
@@ -3341,7 +3340,7 @@ TEST(Substrait, ProjectWithMultiFieldExpressions) {
         "extensionFunction": {
           "extensionUriReference": 1,
           "functionAnchor": 0,
-          "name": "add:opt_i32_i32"
+          "name": "add:i32_i32"
         }
     }],
     "relations": [{
@@ -3420,7 +3419,6 @@ TEST(Substrait, ProjectWithMultiFieldExpressions) {
             },{
               "scalarFunction": {
                 "functionReference": 0,
-                "args": [],
                 "outputType": {
                   "i32": {
                     "typeVariationReference": 0,
@@ -3428,10 +3426,6 @@ TEST(Substrait, ProjectWithMultiFieldExpressions) {
                   }
                 },
                 "arguments": [{
-                  "enum": {
-                    "unspecified": {}
-                  }
-                }, {
                   "value": {
                     "selection": {
                       "directReference": {
@@ -3531,7 +3525,6 @@ TEST(Substrait, NestedProjectWithMultiFieldExpressions) {
                     "functionReference": 2,
                     "outputType": {"i32": {}},
                     "arguments": [
-                      {"enum": {"unspecified": {}}},
                       {"value": {"selection": {"directReference": {"structField": {"field": 0}}}}},
                       {"value": {"literal": {"fp64": 10}}}
                     ]
@@ -3620,7 +3613,6 @@ TEST(Substrait, NestedEmitProjectWithMultiFieldExpressions) {
                     "functionReference": 2,
                     "outputType": {"i32": {}},
                     "arguments": [
-                      {"enum": {"unspecified": {}}},
                       {"value": {"selection": {"directReference": {"structField": {"field": 0}}}}},
                       {"value": {"literal": {"fp64": 10}}}
                     ]
