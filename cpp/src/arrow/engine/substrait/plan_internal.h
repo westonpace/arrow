@@ -61,7 +61,7 @@ Result<ExtensionSet> GetExtensionSetFromPlan(
 /// \param[in, out] ext_set the extension set to be updated
 /// \param[in] conversion_options options to control serialization behavior
 /// \return the serialized plan
-ARROW_ENGINE_EXPORT Result<std::unique_ptr<::substrait::Plan>> PlanToProto(
+ARROW_ENGINE_EXPORT Result<std::unique_ptr<substrait::Plan>> PlanToProto(
     const compute::Declaration& declr, ExtensionSet* ext_set,
     const ConversionOptions& conversion_options = {});
 

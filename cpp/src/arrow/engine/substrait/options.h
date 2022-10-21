@@ -36,7 +36,7 @@ namespace engine {
 /// How strictly to adhere to the input structure when converting between Substrait and
 /// Acero representations of a plan. This allows the user to trade conversion accuracy
 /// for performance and lenience.
-enum class ARROW_ENGINE_EXPORT ConversionStrictness {
+enum class ConversionStrictness {
   /// When a primitive is used at the input that doesn't have an exact match at the
   /// output, reject the conversion. This effectively asserts that there is no (known)
   /// information loss in the conversion, and that plans should either round-trip back and

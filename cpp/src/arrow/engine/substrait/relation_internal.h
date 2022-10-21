@@ -50,7 +50,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel&, const ExtensionSet&,
 /// the ExecNode or ExecPlan are not used in this context as Declaration
 /// is preferred in the Substrait space rather than internal components of
 /// Acero execution engine.
-ARROW_ENGINE_EXPORT Result<std::unique_ptr<::substrait::Rel>> ToProto(
+ARROW_ENGINE_EXPORT Result<std::unique_ptr<substrait::Rel>> ToProto(
     const compute::Declaration&, ExtensionSet*, const ConversionOptions&);
 
 }  // namespace engine

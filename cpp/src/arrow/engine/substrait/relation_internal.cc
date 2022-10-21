@@ -129,7 +129,11 @@ Status DiscoverFilesFromDir(const std::shared_ptr<fs::LocalFileSystem>& local_fs
 
 Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet& ext_set,
                                   const ConversionOptions& conversion_options) {
-  dataset::internal::Initialize();
+  static bool dataset_init = false;
+  if (!dataset_init) {
+    dataset_init = true;
+    dataset::internal::Initialize();
+  }
 
   switch (rel.rel_type_case()) {
     case substrait::Rel::RelTypeCase::kRead: {

@@ -45,7 +45,7 @@ Status AddExtensionSetToPlan(const ExtensionSet& ext_set, substrait::Plan* plan)
     auto uri = ext_set.uris().at(anchor);
     if (uri.empty()) continue;
 
-    auto ext_uri = std::make_unique<::substrait::extensions::SimpleExtensionURI>();
+    auto ext_uri = std::make_unique<substrait::extensions::SimpleExtensionURI>();
     ext_uri->set_uri(std::string(uri));
     ext_uri->set_extension_uri_anchor(anchor);
     uris->AddAllocated(ext_uri.release());

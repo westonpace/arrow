@@ -313,8 +313,7 @@ struct DataTypeToProtoImpl {
 
     for (const auto& field : t.fields()) {
       if (field->metadata() != nullptr) {
-        return Status::Invalid(
-            "::substrait::Type::Struct does not support field metadata");
+        return Status::Invalid("substrait::Type::Struct does not support field metadata");
       }
       ARROW_ASSIGN_OR_RAISE(auto type, ToProto(*field->type(), field->nullable(),
                                                ext_set_, conversion_options_));
@@ -394,7 +393,7 @@ struct DataTypeToProtoImpl {
   template <typename T>
   Status EncodeUserDefined(const T& t) {
     ARROW_ASSIGN_OR_RAISE(auto anchor, ext_set_->EncodeType(t));
-    auto user_defined = std::make_unique<::substrait::Type::UserDefined>();
+    auto user_defined = std::make_unique<substrait::Type::UserDefined>();
     user_defined->set_type_reference(anchor);
     user_defined->set_nullability(nullable_ ? substrait::Type::NULLABILITY_NULLABLE
                                             : substrait::Type::NULLABILITY_REQUIRED);
@@ -415,10 +414,10 @@ struct DataTypeToProtoImpl {
 };
 }  // namespace
 
-Result<std::unique_ptr<::substrait::Type>> ToProto(
+Result<std::unique_ptr<substrait::Type>> ToProto(
     const DataType& type, bool nullable, ExtensionSet* ext_set,
     const ConversionOptions& conversion_options) {
-  auto out = std::make_unique<::substrait::Type>();
+  auto out = std::make_unique<substrait::Type>();
   RETURN_NOT_OK(
       (DataTypeToProtoImpl{out.get(), nullable, ext_set, conversion_options})(type));
   return std::move(out);
@@ -468,26 +467,26 @@ void ToProtoGetDepthFirstNames(const FieldVector& fields,
 }
 }  // namespace
 
-Result<std::unique_ptr<::substrait::NamedStruct>> ToProto(
+Result<std::unique_ptr<substrait::NamedStruct>> ToProto(
     const Schema& schema, ExtensionSet* ext_set,
     const ConversionOptions& conversion_options) {
   if (schema.metadata()) {
-    return Status::Invalid("::substrait::NamedStruct does not support schema metadata");
+    return Status::Invalid("substrait::NamedStruct does not support schema metadata");
   }
 
-  auto named_struct = std::make_unique<::substrait::NamedStruct>();
+  auto named_struct = std::make_unique<substrait::NamedStruct>();
 
   auto names = named_struct->mutable_names();
   names->Reserve(schema.num_fields());
   ToProtoGetDepthFirstNames(schema.fields(), names);
 
-  auto struct_ = std::make_unique<::substrait::Type::Struct>();
+  auto struct_ = std::make_unique<substrait::Type::Struct>();
   auto types = struct_->mutable_types();
   types->Reserve(schema.num_fields());
 
   for (const auto& field : schema.fields()) {
     if (field->metadata() != nullptr) {
-      return Status::Invalid("::substrait::NamedStruct does not support field metadata");
+      return Status::Invalid("substrait::NamedStruct does not support field metadata");
     }
 
     ARROW_ASSIGN_OR_RAISE(auto type, ToProto(*field->type(), field->nullable(), ext_set,

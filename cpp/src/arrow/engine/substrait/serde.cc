@@ -81,7 +81,7 @@ Result<std::shared_ptr<Buffer>> SerializeRelation(
 Result<compute::Declaration> DeserializeRelation(
     const Buffer& buf, const ExtensionSet& ext_set,
     const ConversionOptions& conversion_options) {
-  ARROW_ASSIGN_OR_RAISE(auto rel, ParseFromBuffer<::substrait::Rel>(buf));
+  ARROW_ASSIGN_OR_RAISE(auto rel, ParseFromBuffer<substrait::Rel>(buf));
   ARROW_ASSIGN_OR_RAISE(auto decl_info, FromProto(rel, ext_set, conversion_options));
   return std::move(decl_info.declaration);
 }
@@ -147,7 +147,7 @@ Result<std::vector<compute::Declaration>> DeserializePlans(
     const Buffer& buf, DeclarationFactory declaration_factory,
     const ExtensionIdRegistry* registry, ExtensionSet* ext_set_out,
     const ConversionOptions& conversion_options) {
-  ARROW_ASSIGN_OR_RAISE(auto plan, ParseFromBuffer<::substrait::Plan>(buf));
+  ARROW_ASSIGN_OR_RAISE(auto plan, ParseFromBuffer<substrait::Plan>(buf));
 
   if (plan.version().major() < kMinimumMajorVersion &&
       plan.version().minor() < kMinimumMinorVersion) {
@@ -258,8 +258,7 @@ Result<std::shared_ptr<compute::ExecPlan>> DeserializePlan(
 Result<std::shared_ptr<Schema>> DeserializeSchema(
     const Buffer& buf, const ExtensionSet& ext_set,
     const ConversionOptions& conversion_options) {
-  ARROW_ASSIGN_OR_RAISE(auto named_struct,
-                        ParseFromBuffer<::substrait::NamedStruct>(buf));
+  ARROW_ASSIGN_OR_RAISE(auto named_struct, ParseFromBuffer<substrait::NamedStruct>(buf));
   return FromProto(named_struct, ext_set, conversion_options);
 }
 
@@ -274,7 +273,7 @@ Result<std::shared_ptr<Buffer>> SerializeSchema(
 Result<std::shared_ptr<DataType>> DeserializeType(
     const Buffer& buf, const ExtensionSet& ext_set,
     const ConversionOptions& conversion_options) {
-  ARROW_ASSIGN_OR_RAISE(auto type, ParseFromBuffer<::substrait::Type>(buf));
+  ARROW_ASSIGN_OR_RAISE(auto type, ParseFromBuffer<substrait::Type>(buf));
   ARROW_ASSIGN_OR_RAISE(auto type_nullable, FromProto(type, ext_set, conversion_options));
   return std::move(type_nullable.first);
 }
@@ -291,7 +290,7 @@ Result<std::shared_ptr<Buffer>> SerializeType(
 Result<compute::Expression> DeserializeExpression(
     const Buffer& buf, const ExtensionSet& ext_set,
     const ConversionOptions& conversion_options) {
-  ARROW_ASSIGN_OR_RAISE(auto expr, ParseFromBuffer<::substrait::Expression>(buf));
+  ARROW_ASSIGN_OR_RAISE(auto expr, ParseFromBuffer<substrait::Expression>(buf));
   return FromProto(expr, ext_set, conversion_options);
 }
 
@@ -329,11 +328,11 @@ static Status CheckMessagesEquivalent(const Buffer& l_buf, const Buffer& r_buf) 
 Status CheckMessagesEquivalent(std::string_view message_name, const Buffer& l_buf,
                                const Buffer& r_buf) {
   if (message_name == "Type") {
-    return CheckMessagesEquivalent<::substrait::Type>(l_buf, r_buf);
+    return CheckMessagesEquivalent<substrait::Type>(l_buf, r_buf);
   }
 
   if (message_name == "NamedStruct") {
-    return CheckMessagesEquivalent<::substrait::NamedStruct>(l_buf, r_buf);
+    return CheckMessagesEquivalent<substrait::NamedStruct>(l_buf, r_buf);
   }
 
   if (message_name == "Schema") {
@@ -343,11 +342,11 @@ Status CheckMessagesEquivalent(std::string_view message_name, const Buffer& l_bu
   }
 
   if (message_name == "Expression") {
-    return CheckMessagesEquivalent<::substrait::Expression>(l_buf, r_buf);
+    return CheckMessagesEquivalent<substrait::Expression>(l_buf, r_buf);
   }
 
   if (message_name == "Rel") {
-    return CheckMessagesEquivalent<::substrait::Rel>(l_buf, r_buf);
+    return CheckMessagesEquivalent<substrait::Rel>(l_buf, r_buf);
   }
 
   if (message_name == "Relation") {
