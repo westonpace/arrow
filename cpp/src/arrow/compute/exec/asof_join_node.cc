@@ -18,6 +18,7 @@
 #include "arrow/compute/exec/asof_join_node.h"
 
 #include <condition_variable>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -928,7 +929,10 @@ class AsofJoinNode : public ExecNode {
         if (!out_rb) break;
         ++batches_produced_;
         ExecBatch out_b(*out_rb);
-        outputs_[0]->InputReceived(this, std::move(out_b));
+        ErrorIfNotOk(plan_->ScheduleTask([this, out_b = std::move(out_b)]() mutable {
+          outputs_[0]->InputReceived(this, std::move(out_b));
+          return Status::OK();
+        }));
       } else {
         ErrorIfNotOk(result.status());
         return;
@@ -941,7 +945,10 @@ class AsofJoinNode : public ExecNode {
     // It may happen here in cases where InputFinished was called before we were finished
     // producing results (so we didn't know the output size at that time)
     if (state_.at(0)->Finished()) {
-      outputs_[0]->InputFinished(this, batches_produced_);
+      ErrorIfNotOk(plan_->ScheduleTask([this] {
+        outputs_[0]->InputFinished(this, batches_produced_);
+        return Status::OK();
+      }));
       finished_.MarkFinished();
     }
   }
@@ -1158,6 +1165,7 @@ class AsofJoinNode : public ExecNode {
     size_t n_by = 0;
     for (size_t i = 0; i < input_keys.size(); ++i) {
       const auto& by_key = input_keys[i].by_key;
+      std::cout << "Input: " << i << " by_key.size()=" << by_key.size() << std::endl;
       if (i == 0) {
         n_by = by_key.size();
       } else if (n_by != by_key.size()) {
