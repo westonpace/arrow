@@ -124,7 +124,7 @@ class ConcurrentQueue {
   // 2) pop/try_pop cannot be called concurrently with this
   const T& UnsyncFront() const { return queue_.front(); }
 
-  const size_t UnsyncSize() const { return queue_.size(); }
+  size_t UnsyncSize() const { return queue_.size(); }
 
  private:
   std::queue<T> queue_;
