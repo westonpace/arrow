@@ -239,9 +239,7 @@ class BackpressureController : public BackpressureControl {
  public:
   BackpressureController(ExecNode* node, ExecNode* output,
                          std::atomic<int32_t>& backpressure_counter)
-      : node_(node),
-        output_(output),
-        backpressure_counter_(backpressure_counter) {}
+      : node_(node), output_(output), backpressure_counter_(backpressure_counter) {}
 
   void Pause() override { node_->PauseProducing(output_, backpressure_counter_++); }
   void Resume() override { node_->ResumeProducing(output_, backpressure_counter_++); }
@@ -295,8 +293,7 @@ class BackpressureConcurrentQueue : public ConcurrentQueue<T> {
  private:
   struct DoHandle {
     explicit DoHandle(BackpressureConcurrentQueue& queue)
-        : queue_(queue),
-          start_size_(queue_.UnsyncSize()) {}
+        : queue_(queue), start_size_(queue_.UnsyncSize()) {}
 
     ~DoHandle() {
       size_t end_size = queue_.UnsyncSize();
@@ -367,8 +364,9 @@ class InputState {
     constexpr size_t low_threshold = 4, high_threshold = 8;
     std::unique_ptr<BackpressureControl> backpressure_control =
         std::make_unique<BackpressureController>(node, output, backpressure_counter);
-    ARROW_ASSIGN_OR_RAISE(auto handler, BackpressureHandler::Make(
-        low_threshold, high_threshold, std::move(backpressure_control)));
+    ARROW_ASSIGN_OR_RAISE(auto handler,
+                          BackpressureHandler::Make(low_threshold, high_threshold,
+                                                    std::move(backpressure_control)));
     return std::make_unique<InputState>(must_hash, may_rehash, key_hasher,
                                         std::move(handler), schema, time_col_index,
                                         key_col_index);
@@ -971,10 +969,11 @@ class AsofJoinNode : public ExecNode {
     auto inputs = this->inputs();
     for (size_t i = 0; i < inputs.size(); i++) {
       RETURN_NOT_OK(key_hashers_[i]->Init(plan()->exec_context(), output_schema()));
-      ARROW_ASSIGN_OR_RAISE(auto input_state, InputState::Make(
-          must_hash_, may_rehash_, key_hashers_[i].get(), inputs[i], this,
-          backpressure_counter_, inputs[i]->output_schema(), indices_of_on_key_[i],
-          indices_of_by_key_[i]));
+      ARROW_ASSIGN_OR_RAISE(
+          auto input_state,
+          InputState::Make(must_hash_, may_rehash_, key_hashers_[i].get(), inputs[i],
+                           this, backpressure_counter_, inputs[i]->output_schema(),
+                           indices_of_on_key_[i], indices_of_by_key_[i]));
       state_.push_back(std::move(input_state));
     }
 
@@ -986,7 +985,7 @@ class AsofJoinNode : public ExecNode {
   }
 
   virtual ~AsofJoinNode() {
-    process_.Push(false);  // poison pill
+    process_.Push(false);                                          // poison pill
     if (process_thread_.get_id() != std::this_thread::get_id()) {  // avoid deadlock
       process_thread_.join();
     } else {

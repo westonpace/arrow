@@ -280,7 +280,7 @@ Result<BatchesWithSchema> MakeIntegerBatches(
       values[f] = Datum(array);
     }
     out.batches.push_back(ExecBatch(std::move(values), batch_size));
-    row += batch_size;;
+    row += batch_size;
   }
   return out;
 }
