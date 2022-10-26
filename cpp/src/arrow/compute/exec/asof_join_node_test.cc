@@ -1030,7 +1030,9 @@ TRACED_TEST(AsofJoinTest, TestUnorderedOnKey, {
       schema({field("time", int64()), field("key", int32()), field("r0_v0", float64())}));
 })
 
-TEST(AsofJoinTest, BackpressureDemo) {
+template <typename BatchesMaker>
+void TestBackpressureDemo(BatchesMaker maker, int num_batches, int batch_size,
+                          double fast_delay, double slow_delay, bool noisy = false) {
   auto l_schema =
       schema({field("time", int32()), field("key", int32()), field("l_value", int32())});
   auto r0_schema =
@@ -1038,26 +1040,26 @@ TEST(AsofJoinTest, BackpressureDemo) {
   auto r1_schema =
       schema({field("time", int32()), field("key", int32()), field("r1_value", int32())});
 
-  auto make_integer_batches = [](const std::shared_ptr<Schema>& schema, int shift) {
-    constexpr int num_batches = 10, batch_size = 1;
-    return MakeIntegerBatches({[](int row) -> int64_t { return row; },
-                               [](int row) -> int64_t { return row / num_batches; },
-                               [shift](int row) -> int64_t { return row * 10 + shift; }},
-                              schema, num_batches, batch_size);
+  auto make_shift = [&maker, num_batches, batch_size](
+                        const std::shared_ptr<Schema>& schema, int shift) {
+    return maker({[](int row) -> int64_t { return row; },
+                  [num_batches](int row) -> int64_t { return row / num_batches; },
+                  [shift](int row) -> int64_t { return row * 10 + shift; }},
+                 schema, num_batches, batch_size);
   };
-  ASSERT_OK_AND_ASSIGN(auto l_batches, make_integer_batches(l_schema, 0));
-  ASSERT_OK_AND_ASSIGN(auto r0_batches, make_integer_batches(r0_schema, 1));
-  ASSERT_OK_AND_ASSIGN(auto r1_batches, make_integer_batches(r1_schema, 2));
+  ASSERT_OK_AND_ASSIGN(auto l_batches, make_shift(l_schema, 0));
+  ASSERT_OK_AND_ASSIGN(auto r0_batches, make_shift(r0_schema, 1));
+  ASSERT_OK_AND_ASSIGN(auto r1_batches, make_shift(r1_schema, 2));
 
   compute::Declaration l_src = {
-      "source", SourceNodeOptions(l_batches.schema,
-                                  MakeNoisyDelayedGen(l_batches, "0:fast", 0.01))};
+      "source", SourceNodeOptions(
+                    l_schema, MakeDelayedGen(l_batches, "0:fast", fast_delay, noisy))};
   compute::Declaration r0_src = {
-      "source", SourceNodeOptions(r0_batches.schema,
-                                  MakeNoisyDelayedGen(r0_batches, "1:slow", 0.1))};
+      "source", SourceNodeOptions(
+                    r0_schema, MakeDelayedGen(r0_batches, "1:slow", slow_delay, noisy))};
   compute::Declaration r1_src = {
-      "source", SourceNodeOptions(r1_batches.schema,
-                                  MakeNoisyDelayedGen(r1_batches, "2:fast", 0.1))};
+      "source", SourceNodeOptions(
+                    r1_schema, MakeDelayedGen(r1_batches, "2:fast", fast_delay, noisy))};
 
   compute::Declaration asofjoin = {
       "asofjoin", {l_src, r0_src, r1_src}, GetRepeatedOptions(3, "time", {"key"}, 1000)};
@@ -1065,7 +1067,28 @@ TEST(AsofJoinTest, BackpressureDemo) {
   ASSERT_OK_AND_ASSIGN(std::vector<std::shared_ptr<RecordBatch>> batches,
                        DeclarationToBatches(asofjoin));
 
-  ASSERT_EQ(l_batches.batches.size(), batches.size());
+  ASSERT_EQ(num_batches, batches.size());
+}
+
+TEST(AsofJoinTest, BackpressureDemoWithBatches) {
+  return TestBackpressureDemo(MakeIntegerBatches, /*num_batches=*/10, /*batch_size=*/1,
+                              /*fast_delay=*/0.01, /*slow_delay=*/0.1, /*noisy=*/true);
+}
+
+namespace {
+
+Result<AsyncGenerator<std::optional<ExecBatch>>> MakeIntegerBatchGenForTest(
+    const std::vector<std::function<int64_t(int)>>& gens,
+    const std::shared_ptr<Schema>& schema, int num_batches, int batch_size) {
+  return MakeIntegerBatchGen(gens, schema, num_batches, batch_size);
+}
+
+}  // namespace
+
+TEST(AsofJoinTest, BackpressureDemoWithBatchesGen) {
+  return TestBackpressureDemo(MakeIntegerBatchGenForTest, /*num_batches=*/10,
+                              /*batch_size=*/1,
+                              /*fast_delay=*/0.001, /*slow_delay=*/0.01);
 }
 
 }  // namespace compute

@@ -1165,7 +1165,6 @@ class AsofJoinNode : public ExecNode {
     size_t n_by = 0;
     for (size_t i = 0; i < input_keys.size(); ++i) {
       const auto& by_key = input_keys[i].by_key;
-      std::cout << "Input: " << i << " by_key.size()=" << by_key.size() << std::endl;
       if (i == 0) {
         n_by = by_key.size();
       } else if (n_by != by_key.size()) {
