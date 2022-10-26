@@ -143,7 +143,8 @@ def run_query(plan, *, table_provider=None, use_threads=True):
     c_use_threads = use_threads
     with nogil:
         c_res_reader = ExecuteSerializedPlan(
-            deref(c_buf_plan), default_extension_id_registry(), GetFunctionRegistry(), c_conversion_options,
+            deref(c_buf_plan), default_extension_id_registry(
+            ), GetFunctionRegistry(), c_conversion_options,
             c_use_threads)
 
     c_reader = GetResultValue(c_res_reader)

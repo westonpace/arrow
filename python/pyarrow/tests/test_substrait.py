@@ -226,7 +226,8 @@ def test_named_table(use_threads):
     """
 
     buf = pa._substrait._parse_json_plan(tobytes(substrait_query))
-    reader = pa.substrait.run_query(buf, table_provider=table_provider, use_threads=use_threads)
+    reader = pa.substrait.run_query(
+        buf, table_provider=table_provider, use_threads=use_threads)
     res_tb = reader.read_all()
     assert res_tb == test_table_1
 
@@ -271,7 +272,8 @@ def test_named_table_invalid_table_name(use_threads):
     buf = pa._substrait._parse_json_plan(tobytes(substrait_query))
     exec_message = "Invalid NamedTable Source"
     with pytest.raises(ArrowInvalid, match=exec_message):
-        substrait.run_query(buf, table_provider=table_provider, use_threads=use_threads)
+        substrait.run_query(
+            buf, table_provider=table_provider, use_threads=use_threads)
 
 
 @pytest.mark.parametrize("use_threads", [True, False])
@@ -314,4 +316,5 @@ def test_named_table_empty_names(use_threads):
     buf = pa._substrait._parse_json_plan(tobytes(query))
     exec_message = "names for NamedTable not provided"
     with pytest.raises(ArrowInvalid, match=exec_message):
-        substrait.run_query(buf, table_provider=table_provider, use_threads=use_threads)
+        substrait.run_query(
+            buf, table_provider=table_provider, use_threads=use_threads)
