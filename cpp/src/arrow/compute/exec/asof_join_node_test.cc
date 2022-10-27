@@ -1067,7 +1067,11 @@ void TestBackpressureDemo(BatchesMaker maker, int num_batches, int batch_size,
   ASSERT_OK_AND_ASSIGN(std::vector<std::shared_ptr<RecordBatch>> batches,
                        DeclarationToBatches(asofjoin));
 
-  ASSERT_EQ(num_batches, batches.size());
+  int64_t total_length = 0;
+  for (size_t i = 0; i < batches.size(); i++) {
+    total_length += batches[i]->num_rows();
+  }
+  ASSERT_EQ(static_cast<int64_t>(num_batches * batch_size), total_length);
 }
 
 TEST(AsofJoinTest, BackpressureDemoWithBatches) {
@@ -1083,11 +1087,24 @@ Result<AsyncGenerator<std::optional<ExecBatch>>> MakeIntegerBatchGenForTest(
   return MakeIntegerBatchGen(gens, schema, num_batches, batch_size);
 }
 
+template <typename T>
+T GetEnvValue(const std::string& var, T default_value) {
+  const char* str = std::getenv(var.c_str());
+  if (str == NULLPTR) {
+    return default_value;
+  }
+  std::stringstream s(str);
+  T value = default_value;
+  s >> value;
+  return value;
+}
+
 }  // namespace
 
 TEST(AsofJoinTest, BackpressureDemoWithBatchesGen) {
-  return TestBackpressureDemo(MakeIntegerBatchGenForTest, /*num_batches=*/10,
-                              /*batch_size=*/1,
+  int num_batches = GetEnvValue("ARROW_BACKPRESSURE_DEMO_NUM_BATCHES", 10);
+  int batch_size = GetEnvValue("ARROW_BACKPRESSURE_DEMO_BATCH_SIZE", 1);
+  return TestBackpressureDemo(MakeIntegerBatchGenForTest, num_batches, batch_size,
                               /*fast_delay=*/0.001, /*slow_delay=*/0.01);
 }
 
