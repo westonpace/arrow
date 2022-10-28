@@ -1064,12 +1064,16 @@ void TestBackpressureDemo(BatchesMaker maker, int num_batches, int batch_size,
   compute::Declaration asofjoin = {
       "asofjoin", {l_src, r0_src, r1_src}, GetRepeatedOptions(3, "time", {"key"}, 1000)};
 
-  ASSERT_OK_AND_ASSIGN(std::vector<std::shared_ptr<RecordBatch>> batches,
-                       DeclarationToBatches(asofjoin));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<RecordBatchReader> batch_reader,
+                       DeclarationToReader(asofjoin, /*use_threads=*/false));
 
   int64_t total_length = 0;
-  for (size_t i = 0; i < batches.size(); i++) {
-    total_length += batches[i]->num_rows();
+  for (;;) {
+    ASSERT_OK_AND_ASSIGN(auto batch, batch_reader->Next());
+    if (!batch) {
+      break;
+    }
+    total_length += batch->num_rows();
   }
   ASSERT_EQ(static_cast<int64_t>(num_batches * batch_size), total_length);
 }

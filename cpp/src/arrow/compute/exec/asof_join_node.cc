@@ -242,8 +242,8 @@ class BackpressureController : public BackpressureControl {
                          std::atomic<int32_t>& backpressure_counter)
       : node_(node), output_(output), backpressure_counter_(backpressure_counter) {}
 
-  void Pause() override { node_->PauseProducing(output_, backpressure_counter_++); }
-  void Resume() override { node_->ResumeProducing(output_, backpressure_counter_++); }
+  void Pause() override { node_->PauseProducing(output_, ++backpressure_counter_); }
+  void Resume() override { node_->ResumeProducing(output_, ++backpressure_counter_); }
 
  private:
   ExecNode* node_;
