@@ -935,9 +935,28 @@ class AsofJoinNode : public ExecNode {
     }
   }
 
+  template <typename Callable>
+  struct Defer {
+    Callable callable;
+    Defer(Callable callable) : callable(std::move(callable)) {}
+    ~Defer() noexcept { callable(); }
+  };
+
+  bool CheckEnded() {
+    if (state_.at(0)->Finished()) {
+      ErrorIfNotOk(plan_->ScheduleTask([this] {
+        Defer cleanup([this]() { finished_.MarkFinished(); });
+        outputs_[0]->InputFinished(this, batches_produced_);
+        return Status::OK();
+      }));
+      return false;
+    }
+    return true;
+  }
+
   bool Process() {
     std::lock_guard<std::mutex> guard(gate_);
-    if (state_.at(0)->Finished()) {
+    if (!CheckEnded()) {
       return false;
     }
 
@@ -965,12 +984,7 @@ class AsofJoinNode : public ExecNode {
     //
     // It may happen here in cases where InputFinished was called before we were finished
     // producing results (so we didn't know the output size at that time)
-    if (state_.at(0)->Finished()) {
-      ErrorIfNotOk(plan_->ScheduleTask([this] {
-        outputs_[0]->InputFinished(this, batches_produced_);
-        finished_.MarkFinished();
-        return Status::OK();
-      }));
+    if (!CheckEnded()) {
       return false;
     }
 
