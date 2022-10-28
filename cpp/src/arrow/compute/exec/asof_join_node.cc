@@ -119,6 +119,11 @@ class ConcurrentQueue {
     return queue_.empty();
   }
 
+  size_t Size() const {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return queue_.size();
+  }
+
   // Un-synchronized access to front
   // For this to be "safe":
   // 1) the caller logically guarantees that queue is not empty
@@ -294,10 +299,10 @@ class BackpressureConcurrentQueue : public ConcurrentQueue<T> {
  private:
   struct DoHandle {
     explicit DoHandle(BackpressureConcurrentQueue& queue)
-        : queue_(queue), start_size_(queue_.UnsyncSize()) {}
+        : queue_(queue), start_size_(queue_.Size()) {}
 
     ~DoHandle() {
-      size_t end_size = queue_.UnsyncSize();
+      size_t end_size = queue_.Size();
       queue_.handler_.Handle(start_size_, end_size);
     }
 
