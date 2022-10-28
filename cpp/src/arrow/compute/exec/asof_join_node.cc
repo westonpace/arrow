@@ -914,10 +914,10 @@ class AsofJoinNode : public ExecNode {
     }
   }
 
-  void Process() {
+  bool Process() {
     std::lock_guard<std::mutex> guard(gate_);
-    if (finished_.is_finished()) {
-      return;
+    if (state_.at(0)->Finished()) {
+      return false;
     }
 
     // Process batches while we have data
@@ -935,7 +935,7 @@ class AsofJoinNode : public ExecNode {
         }));
       } else {
         ErrorIfNotOk(result.status());
-        return;
+        return false;
       }
     }
 
@@ -947,10 +947,15 @@ class AsofJoinNode : public ExecNode {
     if (state_.at(0)->Finished()) {
       ErrorIfNotOk(plan_->ScheduleTask([this] {
         outputs_[0]->InputFinished(this, batches_produced_);
+        finished_.MarkFinished();
         return Status::OK();
       }));
-      finished_.MarkFinished();
+      return false;
     }
+
+    // There is no more we can do now but there is still work remaining for later when
+    // more data arrives.
+    return true;
   }
 
   void ProcessThread() {
@@ -958,7 +963,9 @@ class AsofJoinNode : public ExecNode {
       if (!process_.Pop()) {
         return;
       }
-      Process();
+      if (!Process()) {
+        return;
+      }
     }
   }
 
