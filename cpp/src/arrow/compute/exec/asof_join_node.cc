@@ -86,6 +86,10 @@ class ConcurrentQueue {
   T Pop() {
     std::unique_lock<std::mutex> lock(mutex_);
     cond_.wait(lock, [&] { return !queue_.empty(); });
+    return PopUnlocked();
+  }
+
+  T PopUnlocked() {
     auto item = queue_.front();
     queue_.pop();
     return item;
@@ -93,18 +97,28 @@ class ConcurrentQueue {
 
   void Push(const T& item) {
     std::unique_lock<std::mutex> lock(mutex_);
+    return PushUnlocked(item);
+  }
+
+  void PushUnlocked(const T& item) {
     queue_.push(item);
     cond_.notify_one();
   }
 
   void Clear() {
     std::unique_lock<std::mutex> lock(mutex_);
-    queue_ = std::queue<T>();
+    ClearUnlocked();
   }
 
+  void ClearUnlocked() { queue_ = std::queue<T>(); }
+
   std::optional<T> TryPop() {
-    // Try to pop the oldest value from the queue (or return nullopt if none)
     std::unique_lock<std::mutex> lock(mutex_);
+    return TryPopUnlocked();
+  }
+
+  std::optional<T> TryPopUnlocked() {
+    // Try to pop the oldest value from the queue (or return nullopt if none)
     if (queue_.empty()) {
       return std::nullopt;
     } else {
@@ -119,11 +133,6 @@ class ConcurrentQueue {
     return queue_.empty();
   }
 
-  size_t Size() const {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return queue_.size();
-  }
-
   // Un-synchronized access to front
   // For this to be "safe":
   // 1) the caller logically guarantees that queue is not empty
@@ -131,6 +140,9 @@ class ConcurrentQueue {
   const T& UnsyncFront() const { return queue_.front(); }
 
   size_t UnsyncSize() const { return queue_.size(); }
+
+ protected:
+  std::mutex& GetMutex() { return mutex_; }
 
  private:
   std::queue<T> queue_;
@@ -299,10 +311,10 @@ class BackpressureConcurrentQueue : public ConcurrentQueue<T> {
  private:
   struct DoHandle {
     explicit DoHandle(BackpressureConcurrentQueue& queue)
-        : queue_(queue), start_size_(queue_.Size()) {}
+        : queue_(queue), start_size_(queue_.UnsyncSize()) {}
 
     ~DoHandle() {
-      size_t end_size = queue_.Size();
+      size_t end_size = queue_.UnsyncSize();
       queue_.handler_.Handle(start_size_, end_size);
     }
 
@@ -315,23 +327,27 @@ class BackpressureConcurrentQueue : public ConcurrentQueue<T> {
       : handler_(std::move(handler)) {}
 
   T Pop() {
+    std::unique_lock<std::mutex> lock(ConcurrentQueue<T>::GetMutex());
     DoHandle do_handle(*this);
-    return ConcurrentQueue<T>::Pop();
+    return ConcurrentQueue<T>::PopUnlocked();
   }
 
   void Push(const T& item) {
+    std::unique_lock<std::mutex> lock(ConcurrentQueue<T>::GetMutex());
     DoHandle do_handle(*this);
-    ConcurrentQueue<T>::Push(item);
+    ConcurrentQueue<T>::PushUnlocked(item);
   }
 
   void Clear() {
+    std::unique_lock<std::mutex> lock(ConcurrentQueue<T>::GetMutex());
     DoHandle do_handle(*this);
-    ConcurrentQueue<T>::Clear();
+    ConcurrentQueue<T>::ClearUnlocked();
   }
 
   std::optional<T> TryPop() {
+    std::unique_lock<std::mutex> lock(ConcurrentQueue<T>::GetMutex());
     DoHandle do_handle(*this);
-    return ConcurrentQueue<T>::TryPop();
+    return ConcurrentQueue<T>::TryPopUnlocked();
   }
 
  private:
