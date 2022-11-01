@@ -938,7 +938,7 @@ class AsofJoinNode : public ExecNode {
   template <typename Callable>
   struct Defer {
     Callable callable;
-    Defer(Callable callable) : callable(std::move(callable)) {}
+    explicit Defer(Callable callable) : callable(std::move(callable)) {}
     ~Defer() noexcept { callable(); }
   };
 
