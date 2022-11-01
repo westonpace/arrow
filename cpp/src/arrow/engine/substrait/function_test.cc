@@ -128,6 +128,7 @@ Result<std::shared_ptr<compute::ExecPlan>> PlanFromTestCase(
 
 void CheckValidTestCases(const std::vector<FunctionTestCase>& valid_cases) {
   for (const FunctionTestCase& test_case : valid_cases) {
+    ARROW_SCOPED_TRACE("function_name=", test_case.function_id.ToString());
     std::shared_ptr<Table> output_table;
     ASSERT_OK_AND_ASSIGN(std::shared_ptr<compute::ExecPlan> plan,
                          PlanFromTestCase(test_case, &output_table));
@@ -206,13 +207,13 @@ TEST(FunctionMapping, ValidCases) {
       {{kSubstraitArithmeticFunctionsUri, "power"},
        {"2", "2"},
        {{"overflow", {"SILENT", "ERROR"}}},
-       {nullptr, int8(), int8()},
+       {int8(), int8()},
        "4",
        int8()},
       {{kSubstraitArithmeticFunctionsUri, "sqrt"},
        {"4"},
        {{"overflow", {"SILENT", "ERROR"}}},
-       {nullptr, int8()},
+       {int8()},
        "2",
        float64()},
       {{kSubstraitArithmeticFunctionsUri, "exp"},
@@ -224,7 +225,7 @@ TEST(FunctionMapping, ValidCases) {
       {{kSubstraitArithmeticFunctionsUri, "abs"},
        {"-1"},
        {{"overflow", {"SILENT", "ERROR"}}},
-       {nullptr, int8()},
+       {int8()},
        "1",
        int8()},
       {{kSubstraitBooleanFunctionsUri, "or"},
