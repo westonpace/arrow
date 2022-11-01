@@ -937,7 +937,7 @@ class AsofJoinNode : public ExecNode {
 
   bool Process() {
     std::lock_guard<std::mutex> guard(gate_);
-    if (finished_.is_finished()) {
+    if (state_.at(0)->Finished()) {
       return false;
     }
 
