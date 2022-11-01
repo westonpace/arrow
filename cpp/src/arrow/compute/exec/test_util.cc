@@ -382,6 +382,15 @@ void AssertTablesEqual(const std::shared_ptr<Table>& exp,
   }
 }
 
+// TODO(weston) This is just an alias at the moment for AssertTablesEqual
+// I think we should rename AssertTablesEqual to this name as it's been a year and I never
+// realized this function existed because I always just assumed we were referencing
+// ::arrow::AssertTablesEqual.  Not critical now.  FIXME before merging to master
+void AssertTablesEqualUnordered(const std::shared_ptr<Table>& exp,
+                                const std::shared_ptr<Table>& act) {
+  return AssertTablesEqual(exp, act);
+}
+
 void AssertExecBatchesEqual(const std::shared_ptr<Schema>& schema,
                             const std::vector<ExecBatch>& exp,
                             const std::vector<ExecBatch>& act) {

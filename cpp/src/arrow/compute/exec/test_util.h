@@ -131,6 +131,10 @@ void AssertTablesEqual(const std::shared_ptr<Table>& exp,
                        const std::shared_ptr<Table>& act);
 
 ARROW_TESTING_EXPORT
+void AssertTablesEqualUnordered(const std::shared_ptr<Table>& exp,
+                                const std::shared_ptr<Table>& act);
+
+ARROW_TESTING_EXPORT
 void AssertExecBatchesEqual(const std::shared_ptr<Schema>& schema,
                             const std::vector<ExecBatch>& exp,
                             const std::vector<ExecBatch>& act);
