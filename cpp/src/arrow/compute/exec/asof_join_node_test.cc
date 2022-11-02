@@ -32,6 +32,7 @@
 #include "arrow/compute/exec/util.h"
 #include "arrow/compute/kernels/row_encoder.h"
 #include "arrow/compute/kernels/test_util.h"
+#include "arrow/testing/generator.h"
 #include "arrow/testing/gtest_util.h"
 #include "arrow/testing/matchers.h"
 #include "arrow/testing/random.h"
@@ -73,8 +74,9 @@ Result<BatchesWithSchema> MakeBatchesFromNumString(
     const std::vector<std::string_view>& json_strings, int multiplicity = 1) {
   FieldVector num_fields;
   for (auto field : schema->fields()) {
-    num_fields.push_back(
-        is_base_binary_like(field->type()->id()) ? field->WithType(int64()) : field);
+    auto id = field->type()->id();
+    bool adjust = id == Type::BOOL || is_base_binary_like(id);
+    num_fields.push_back(adjust ? field->WithType(int64()) : field);
   }
   auto num_schema =
       std::make_shared<Schema>(num_fields, schema->endianness(), schema->metadata());
@@ -84,6 +86,7 @@ Result<BatchesWithSchema> MakeBatchesFromNumString(
   batches.schema = schema;
   int n_fields = schema->num_fields();
   for (auto num_batch : num_batches.batches) {
+    Datum two(ConstantArrayGenerator::Int32(num_batch.length, 2));
     std::vector<Datum> values;
     for (int i = 0; i < n_fields; i++) {
       auto type = schema->field(i)->type();
@@ -92,6 +95,12 @@ Result<BatchesWithSchema> MakeBatchesFromNumString(
         ARROW_ASSIGN_OR_RAISE(Datum as_string, Cast(num_batch.values[i], utf8()));
         ARROW_ASSIGN_OR_RAISE(Datum as_type, Cast(as_string, type));
         values.push_back(as_type);
+      } else if (Type::BOOL == type->id()) {
+        ARROW_ASSIGN_OR_RAISE(Datum div_two, Divide(num_batch.values[i], two));
+        ARROW_ASSIGN_OR_RAISE(Datum rounded, Multiply(div_two, two));
+        ARROW_ASSIGN_OR_RAISE(Datum low_bit, Subtract(num_batch.values[i], rounded));
+        ARROW_ASSIGN_OR_RAISE(Datum as_bool, Cast(low_bit, type));
+        values.push_back(as_bool);
       } else {
         values.push_back(num_batch.values[i]);
       }
