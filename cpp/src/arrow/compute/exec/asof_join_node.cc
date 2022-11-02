@@ -1342,7 +1342,7 @@ AsofJoinNode::AsofJoinNode(ExecPlan* plan, NodeVector inputs,
       must_hash_(must_hash),
       may_rehash_(may_rehash),
       tolerance_(tolerance),
-      backpressure_counter_(0),
+      backpressure_counter_(1),
       process_(),
       process_thread_(&AsofJoinNode::ProcessThreadWrapper, this) {
   finished_ = arrow::Future<>::MakeFinished();
