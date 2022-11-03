@@ -96,6 +96,12 @@ Result<BatchesWithSchema> MakeBatchesFromNumString(
         ARROW_ASSIGN_OR_RAISE(Datum as_type, Cast(as_string, type));
         values.push_back(as_type);
       } else if (Type::BOOL == type->id()) {
+        // the next 4 lines compute `as_bool` as `(bool)(x - 2*(x/2))`, i.e., the low bit
+        // of `x`. Here, `x` stands for `num_batch.values[i]`, which is an `int64` value.
+        // Taking the low bit is a somewhat arbitrary way of obtaining both `true` and
+        // `false` values from the `int64` values in the test data, in order to get good
+        // testing coverage. A simple cast to a Boolean value would not get good coverage
+        // because all positive values would be cast to `true`.
         ARROW_ASSIGN_OR_RAISE(Datum div_two, Divide(num_batch.values[i], two));
         ARROW_ASSIGN_OR_RAISE(Datum rounded, Multiply(div_two, two));
         ARROW_ASSIGN_OR_RAISE(Datum low_bit, Subtract(num_batch.values[i], rounded));
