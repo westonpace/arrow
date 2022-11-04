@@ -29,6 +29,7 @@
 #include "arrow/dataset/type_fwd.h"
 #include "arrow/engine/substrait/options.h"
 #include "arrow/engine/substrait/type_fwd.h"
+#include "arrow/engine/substrait/util.h"
 #include "arrow/engine/substrait/visibility.h"
 #include "arrow/result.h"
 #include "arrow/status.h"
@@ -54,6 +55,24 @@ Result<std::shared_ptr<Buffer>> SerializePlan(
 /// Factory function type for generating the node that consumes the batches produced by
 /// each toplevel Substrait relation when deserializing a Substrait Plan.
 using ConsumerFactory = std::function<std::shared_ptr<compute::SinkNodeConsumer>()>;
+
+/// \brief Deserializes a Substrait Plan message to an ExecNode declaration
+///
+/// The plan must contain exactly one top-level relation.
+///
+/// The returned plan will not have a sink node.
+///
+/// \param[in] buf a buffer containing the protobuf serialization of a Substrait Plan
+/// message
+/// \param[in] registry an extension-id-registry to use, or null for the default one.
+/// \param[out] ext_set_out if non-null, the extension mapping used by the Substrait
+/// Plan is returned here.
+/// \param[in] conversion_options options to control how the conversion is to be done.
+/// \return The plan as a compute::Declaration along with the output schema
+ARROW_ENGINE_EXPORT Result<DeclarationInfo> DeserializePlan(
+    const Buffer& buf, const ExtensionIdRegistry* registry = NULLPTR,
+    ExtensionSet* ext_set_out = NULLPTR,
+    const ConversionOptions& conversion_options = {});
 
 /// \brief Deserializes a Substrait Plan message to a list of ExecNode declarations
 ///

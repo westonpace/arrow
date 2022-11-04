@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 
+#include "arrow/compute/exec/exec_plan.h"
 #include "arrow/compute/registry.h"
 #include "arrow/engine/substrait/api.h"
 #include "arrow/engine/substrait/options.h"
@@ -28,6 +29,14 @@
 namespace arrow {
 
 namespace engine {
+
+/// Information resulting from converting a Substrait relation.
+struct ARROW_ENGINE_EXPORT DeclarationInfo {
+  /// The compute declaration produced thus far.
+  compute::Declaration declaration;
+
+  std::shared_ptr<Schema> output_schema;
+};
 
 using PythonTableProvider =
     std::function<Result<std::shared_ptr<Table>>(const std::vector<std::string>&)>;

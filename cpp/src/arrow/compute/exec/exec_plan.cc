@@ -636,43 +636,56 @@ struct BatchConverter {
     return exec_batch_gen().Then([this](const std::optional<ExecBatch>& batch)
                                      -> Result<std::shared_ptr<RecordBatch>> {
       if (batch) {
-        return batch->ToRecordBatch(schema);
+        return batch->ToRecordBatch(output_schema);
       } else {
         return nullptr;
       }
     });
   }
 
+  Status Init() {
+    if (!output_schema) {
+      // If no user-provided output schema then use the schema from the plan
+      output_schema = plan_schema;
+    } else {
+      // FIXME: Verify that the output schema and plan schema are compatible
+    }
+    return Status::OK();
+  }
+
   AsyncGenerator<std::optional<ExecBatch>> exec_batch_gen;
-  std::shared_ptr<Schema> schema;
+  std::shared_ptr<Schema> plan_schema;
+  std::shared_ptr<Schema> output_schema;
 };
 
 Result<BatchConverter> DeclarationToRecordBatchGenerator(
     Declaration declaration, ::arrow::internal::Executor* executor,
-    std::shared_ptr<ExecPlan>* out_plan) {
+    std::shared_ptr<ExecPlan>* out_plan, std::shared_ptr<Schema> output_schema) {
   BatchConverter converter;
+  converter.output_schema = output_schema;
   ARROW_ASSIGN_OR_RAISE(*out_plan, ExecPlan::Make());
   Declaration with_sink = Declaration::Sequence(
       {declaration,
-       {"sink", SinkNodeOptions(&converter.exec_batch_gen, &converter.schema)}});
+       {"sink", SinkNodeOptions(&converter.exec_batch_gen, &converter.plan_schema)}});
   ARROW_RETURN_NOT_OK(with_sink.AddToPlan(out_plan->get()));
   ARROW_RETURN_NOT_OK((*out_plan)->StartProducing(executor));
+  ARROW_RETURN_NOT_OK(converter.Init());
   return converter;
 }
 }  // namespace
 
-Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(Declaration declaration,
-                                                               bool use_threads) {
+Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(
+    Declaration declaration, std::shared_ptr<Schema> output_schema, bool use_threads) {
   std::shared_ptr<ExecPlan> plan;
   std::shared_ptr<Schema> schema;
   Iterator<std::shared_ptr<RecordBatch>> batch_itr =
       ::arrow::internal::IterateSynchronously<std::shared_ptr<RecordBatch>>(
           [&](::arrow::internal::Executor* executor)
               -> Result<AsyncGenerator<std::shared_ptr<RecordBatch>>> {
-            ARROW_ASSIGN_OR_RAISE(
-                BatchConverter batch_converter,
-                DeclarationToRecordBatchGenerator(declaration, executor, &plan));
-            schema = batch_converter.schema;
+            ARROW_ASSIGN_OR_RAISE(BatchConverter batch_converter,
+                                  DeclarationToRecordBatchGenerator(
+                                      declaration, executor, &plan, output_schema));
+            schema = batch_converter.output_schema;
             return batch_converter;
           },
           use_threads);

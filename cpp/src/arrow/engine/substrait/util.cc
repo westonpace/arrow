@@ -31,18 +31,10 @@ Result<std::shared_ptr<RecordBatchReader>> ExecuteSerializedPlan(
     compute::FunctionRegistry* func_registry, const ConversionOptions& conversion_options,
     bool use_threads) {
   ARROW_ASSIGN_OR_RAISE(
-      std::vector<compute::Declaration> declarations,
-      engine::DeserializePlans(substrait_buffer, registry, nullptr, conversion_options));
-  if (declarations.size() > 1) {
-    return Status::NotImplemented(
-        "ExecuteSerializedPlan cannot be called on a plan with multiple top-level "
-        "relations");
-  }
-  if (declarations.empty()) {
-    return Status::Invalid("Invalid Substrait plan contained no top-level relations");
-  }
-  compute::Declaration declaration = declarations[0];
-  return compute::DeclarationToReader(std::move(declaration), use_threads);
+      DeclarationInfo declaration_info,
+      engine::DeserializePlan(substrait_buffer, registry, nullptr, conversion_options));
+  return compute::DeclarationToReader(std::move(declaration_info.declaration),
+                                      declaration_info.output_schema, use_threads);
 }
 
 Result<std::shared_ptr<Buffer>> SerializeJsonPlan(const std::string& substrait_json) {

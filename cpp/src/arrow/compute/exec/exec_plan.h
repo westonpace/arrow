@@ -522,8 +522,16 @@ ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatc
     Declaration declaration, ExecContext* exec_context = default_exec_context());
 
 /// \brief Utility method to run a declaration return results as a RecordBatchReader
-Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(Declaration declaration,
-                                                               bool use_threads);
+/// \param declaration The declaration to convert
+/// \param output_schema An output schema to apply to outgoing batches
+///
+///        This is optional and can be used to supply custom names or metadata to
+///        the returned batches.  If it is NULLPTR (the default) then Acero will choose
+///        suitable output names and there will be no metadata.
+/// \param use_threads True if CPU threads should be used to execute the plan
+Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(
+    Declaration declaration, std::shared_ptr<Schema> output_schema = NULLPTR,
+    bool use_threads = true);
 
 /// \brief Wrap an ExecBatch generator in a RecordBatchReader.
 ///

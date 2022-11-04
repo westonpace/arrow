@@ -188,13 +188,11 @@ void CheckRoundTripResult(const std::shared_ptr<Schema> output_schema,
   std::shared_ptr<ExtensionIdRegistry> sp_ext_id_reg = MakeExtensionIdRegistry();
   ExtensionIdRegistry* ext_id_reg = sp_ext_id_reg.get();
   ExtensionSet ext_set(ext_id_reg);
-  ASSERT_OK_AND_ASSIGN(auto sink_decls, DeserializePlans(
-                                            *buf, [] { return kNullConsumer; },
-                                            ext_id_reg, &ext_set, conversion_options));
-  auto& other_declrs = std::get<compute::Declaration>(sink_decls[0].inputs[0]);
+  ASSERT_OK_AND_ASSIGN(auto plan_decl,
+                       DeserializePlan(*buf, ext_id_reg, &ext_set, conversion_options));
 
-  ASSERT_OK_AND_ASSIGN(auto output_table,
-                       GetTableFromPlan(other_declrs, exec_context, output_schema));
+  ASSERT_OK_AND_ASSIGN(auto output_table, GetTableFromPlan(plan_decl.declaration,
+                                                           exec_context, output_schema));
   if (!include_columns.empty()) {
     ASSERT_OK_AND_ASSIGN(output_table, output_table->SelectColumns(include_columns));
   }
@@ -3462,7 +3460,7 @@ TEST(Substrait, ProjectWithMultiFieldExpressions) {
             }]
           }
         },
-        "names": ["A", "B", "C", "D"]
+        "names": ["A", "B", "C"]
       }
     }]
   })";

@@ -104,6 +104,48 @@ def test_run_query_input_types(tmpdir, query, use_threads):
 
 
 @pytest.mark.parametrize("use_threads", [True, False])
+def test_root_rel_rename(use_threads):
+    test_table = pa.Table.from_pydict({"x": [1, 2, 3]})
+    expected_table = pa.Table.from_pydict({"different": [1, 2, 3]})
+
+    def table_provider(names):
+        return test_table
+
+    substrait_query = """
+    {
+        "version": { "major": 9999 },
+        "relations": [
+        {"root": {
+            "input": {
+                "read": {
+                    "base_schema": {
+                        "struct": {
+                        "types": [
+                                    {"i64": {}}
+                                ]
+                        },
+                        "names": [
+                                "x"
+                                ]
+                    },
+                    "namedTable": {
+                            "names": ["t1"]
+                    }
+                }
+            },
+            "names": ["different"]
+        }}
+        ]
+    }
+    """
+
+    buf = pa._substrait._parse_json_plan(tobytes(substrait_query))
+    reader = pa.substrait.run_query(
+        buf, table_provider=table_provider, use_threads=use_threads)
+    res_tb = reader.read_all()
+    assert res_tb == expected_table
+
+@pytest.mark.parametrize("use_threads", [True, False])
 def test_invalid_plan(use_threads):
     query = """
     {
@@ -112,7 +154,7 @@ def test_invalid_plan(use_threads):
     }
     """
     buf = pa._substrait._parse_json_plan(tobytes(query))
-    exec_message = "Invalid Substrait plan contained no top-level relations"
+    exec_message = "Substrait plan had an invalid number of top-level relations"
     with pytest.raises(ArrowInvalid, match=exec_message):
         substrait.run_query(buf, use_threads=use_threads)
 
