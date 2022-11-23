@@ -91,6 +91,28 @@ Result<DeclarationInfo> ProcessEmit(const RelMessage& rel,
   }
 }
 
+Result<DeclarationInfo> ProcessExtensionEmit(const DeclarationInfo& no_emit_declr,
+                                             const std::vector<int>& emit_info) {
+  const std::shared_ptr<Schema>& input_schema = no_emit_declr.output_schema;
+  std::vector<compute::Expression> proj_field_refs;
+  proj_field_refs.reserve(emit_info.size());
+  FieldVector emit_fields;
+  emit_fields.reserve(emit_info.size());
+
+  for (auto emit_idx : emit_info) {
+    proj_field_refs.push_back(compute::field_ref(FieldRef(emit_idx)));
+    emit_fields.push_back(input_schema->field(emit_idx));
+  }
+
+  std::shared_ptr<Schema> emit_schema = schema(std::move(emit_fields));
+
+  return DeclarationInfo{
+      compute::Declaration::Sequence(
+          {no_emit_declr.declaration,
+           {"project", compute::ProjectNodeOptions{std::move(proj_field_refs)}}}),
+      std::move(emit_schema)};
+}
+
 template <typename RelMessage>
 Status CheckRelCommon(const RelMessage& rel,
                       const ConversionOptions& conversion_options) {
@@ -611,32 +633,47 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
 
     case substrait::Rel::RelTypeCase::kExtensionLeaf: {
       const auto& ext = rel.extension_leaf();
-      ARROW_ASSIGN_OR_RAISE(
-          auto ext_leaf_decl,
-          conversion_options.extension_provider->MakeRel({}, ext.detail(), ext_set));
+      ARROW_ASSIGN_OR_RAISE(auto ext_leaf_decl,
+                            conversion_options.extension_provider->MakeRel(
+                                {}, ext.detail(), nullptr, nullptr, ext_set));
       return ProcessEmit(ext, std::move(ext_leaf_decl), ext_leaf_decl.output_schema);
     }
     case substrait::Rel::RelTypeCase::kExtensionSingle: {
       const auto& ext = rel.extension_single();
       ARROW_ASSIGN_OR_RAISE(DeclarationInfo input,
                             FromProto(ext.input(), ext_set, conversion_options));
-      ARROW_ASSIGN_OR_RAISE(
-          auto ext_single_decl,
-          conversion_options.extension_provider->MakeRel({input}, ext.detail(), ext_set));
+      ARROW_ASSIGN_OR_RAISE(auto ext_single_decl,
+                            conversion_options.extension_provider->MakeRel(
+                                {input}, ext.detail(), nullptr, nullptr, ext_set));
       return ProcessEmit(ext, std::move(ext_single_decl), ext_single_decl.output_schema);
     }
     case substrait::Rel::RelTypeCase::kExtensionMulti: {
       const auto& ext = rel.extension_multi();
       std::vector<DeclarationInfo> inputs;
+      std::vector<int> emit_order;
+      bool has_emit = false;
+      if (ext.has_common() &&
+          ext.common().emit_kind_case() == substrait::RelCommon::EmitKindCase::kEmit) {
+        has_emit = true;
+        const auto& emit_info = ext.common().emit();
+        for (const auto& emit_idx : emit_info.output_mapping()) {
+          emit_order.push_back(emit_idx);
+        }
+      }
       for (const auto& input : ext.inputs()) {
         ARROW_ASSIGN_OR_RAISE(auto input_info,
                               FromProto(input, ext_set, conversion_options));
         inputs.push_back(std::move(input_info));
       }
-      ARROW_ASSIGN_OR_RAISE(
-          auto ext_multi_decl,
-          conversion_options.extension_provider->MakeRel(inputs, ext.detail(), ext_set));
-      return ProcessEmit(ext, std::move(ext_multi_decl), ext_multi_decl.output_schema);
+      ARROW_ASSIGN_OR_RAISE(auto ext_multi_decl,
+                            conversion_options.extension_provider->MakeRel(
+                                inputs, ext.detail(), &has_emit, &emit_order, ext_set));
+
+      if (has_emit) {
+        return ProcessExtensionEmit(std::move(ext_multi_decl), emit_order);
+      } else {
+        return ext_multi_decl;
+      }
     }
 
     default:

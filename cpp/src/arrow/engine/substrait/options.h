@@ -75,6 +75,7 @@ class ARROW_ENGINE_EXPORT ExtensionProvider {
   virtual ~ExtensionProvider() = default;
   virtual Result<DeclarationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
                                           const google::protobuf::Any& rel,
+                                          bool* has_emit, std::vector<int>* emit_info,
                                           const ExtensionSet& ext_set) = 0;
 };
 
