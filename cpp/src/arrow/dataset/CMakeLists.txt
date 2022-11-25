@@ -20,6 +20,7 @@ add_custom_target(arrow_dataset)
 arrow_install_all_headers("arrow/dataset")
 
 set(ARROW_DATASET_SRCS
+    abi.cc
     dataset.cc
     dataset_writer.cc
     discovery.cc

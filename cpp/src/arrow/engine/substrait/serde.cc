@@ -174,6 +174,51 @@ Result<std::vector<compute::Declaration>> DeserializePlans(
 
 }  // namespace
 
+Result<DeclarationInfo> DeserializePlan(const Buffer& buf,
+                                        const ExtensionIdRegistry* registry,
+                                        ExtensionSet* ext_set_out,
+                                        const ConversionOptions& conversion_options) {
+  ARROW_ASSIGN_OR_RAISE(auto plan, ParseFromBuffer<substrait::Plan>(buf));
+
+  ARROW_ASSIGN_OR_RAISE(auto ext_set,
+                        GetExtensionSetFromPlan(plan, conversion_options, registry));
+
+  if (plan.relations_size() != 1) {
+    return Status::Invalid(
+        "Substrait plan had an invalid number of top-level relations: ",
+        plan.relations_size());
+  }
+
+  auto plan_rel = plan.relations(0);
+
+  ARROW_ASSIGN_OR_RAISE(
+      auto decl_info,
+      FromProto(plan_rel.has_root() ? plan_rel.root().input() : plan_rel.rel(), ext_set,
+                conversion_options));
+  std::vector<std::string> names;
+  if (plan_rel.has_root()) {
+    if (plan_rel.root().names_size() > 0) {
+      std::shared_ptr<Schema> sch = decl_info.output_schema;
+      names.assign(plan_rel.root().names().begin(), plan_rel.root().names().end());
+      if (static_cast<int>(names.size()) != sch->num_fields()) {
+        return Status::Invalid("Substrait plan had a root rel with ", names.size(),
+                               " names but there were only ", sch->num_fields(),
+                               " fields in the output schema");
+      }
+      std::vector<std::shared_ptr<Field>> renamed_fields(sch->num_fields());
+      for (std::size_t i = 0; i < names.size(); i++) {
+        renamed_fields[i] = sch->field(static_cast<int>(i))->WithName(names[i]);
+      }
+      decl_info.output_schema = schema(std::move(renamed_fields));
+    }
+  }
+
+  if (ext_set_out) {
+    *ext_set_out = std::move(ext_set);
+  }
+  return decl_info;
+}
+
 Result<std::vector<compute::Declaration>> DeserializePlans(
     const Buffer& buf, const ConsumerFactory& consumer_factory,
     const ExtensionIdRegistry* registry, ExtensionSet* ext_set_out,

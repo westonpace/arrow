@@ -31,14 +31,6 @@
 namespace arrow {
 namespace engine {
 
-/// Information resulting from converting a Substrait relation.
-struct DeclarationInfo {
-  /// The compute declaration produced thus far.
-  compute::Declaration declaration;
-
-  std::shared_ptr<Schema> output_schema;
-};
-
 /// \brief Convert a Substrait Rel object to an Acero declaration
 ARROW_ENGINE_EXPORT
 Result<DeclarationInfo> FromProto(const substrait::Rel&, const ExtensionSet&,

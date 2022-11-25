@@ -20,6 +20,7 @@ add_custom_target(arrow_substrait)
 arrow_install_all_headers("arrow/engine/substrait")
 
 set(ARROW_SUBSTRAIT_SRCS
+    abi.cc
     substrait/expression_internal.cc
     substrait/extension_set.cc
     substrait/extension_types.cc

@@ -518,7 +518,7 @@ ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatc
 
 /// \brief Utility method to run a declaration and return results as a RecordBatchReader
 ARROW_EXPORT Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(
-    Declaration declaration, bool use_threads);
+    Declaration declaration, bool use_threads = true);
 
 /// \brief Wrap an ExecBatch generator in a RecordBatchReader.
 ///
