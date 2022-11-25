@@ -1,6 +1,7 @@
 #include "arrow/engine/abi.h"
 
 #include <cerrno>
+#include <iostream>
 
 #include "arrow/buffer.h"
 #include "arrow/c/bridge.h"
@@ -58,6 +59,14 @@ ArrowArrayStream WrapError(const arrow::Status& st) {
 ArrowArrayStream arrow_substrait_run(void* plan, int64_t plan_length,
                                      ArrowArrayStream* named_tables,
                                      int num_named_tables) {
+  std::cout << "plan=" << plan << std::endl;
+  std::cout << "plan_length=" << plan_length << std::endl;
+  std::cout << "named_tables=" << named_tables << std::endl;
+  std::cout << "num_named_tables=" << num_named_tables << std::endl;
+  auto* bytes = reinterpret_cast<uint8_t*>(plan);
+  for (int64_t i = 0; i < plan_length; i++) {
+    std::cout << " plan byte[" << i << "] = " << bytes[i] << std::endl;
+  }
   arrow::Result<ArrowArrayStream> maybe_output_stream = DoRun(plan, plan_length);
   if (maybe_output_stream.ok()) {
     return *maybe_output_stream;

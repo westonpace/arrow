@@ -11,7 +11,7 @@ extern "C" {
 #ifndef ARROW_DATASET_C_DATA_INTERFACE
 #define ARROW_DATASET_C_DATA_INTERFACE
 
-ARROW_DS_EXPORT void arrow_dataset_initailize();
+ARROW_DS_EXPORT void arrow_dataset_initialize();
 
 #endif
 
