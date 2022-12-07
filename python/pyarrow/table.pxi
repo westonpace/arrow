@@ -5328,11 +5328,12 @@ list[tuple(str, str, FunctionOptions)]
             for col_name, (aggr_name, _) in zip(columns, group_by_aggrs)
         ] + self.keys
 
-        result = _pc()._group_by(
-            [self._table[c] for c in columns],
-            [self._table[k] for k in self.keys],
-            group_by_aggrs
-        )
+        agg_tables = []
+        for batch in self._table.to_batches():
+            agg_tables.append(_pc()._group_by(
+                [batch[c] for c in columns],
+                [batch[k] for k in self.keys],
+                group_by_aggrs
+            ))
 
-        t = Table.from_batches([RecordBatch.from_struct_array(result)])
-        return t.rename_columns(column_names)
+        return concat_tables(agg_tables).rename_columns(column_names)

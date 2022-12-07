@@ -2463,16 +2463,16 @@ cdef extern from * namespace "arrow::compute":
             const CBuffer& buffer)
 
 
-cdef extern from "arrow/compute/exec/aggregate.h" namespace \
-        "arrow::compute::internal" nogil:
-    cdef cppclass CAggregate "arrow::compute::Aggregate":
+cdef extern from "arrow/compute/exec/groupby.h" namespace \
+        "arrow::compute" nogil:
+    cdef cppclass CSimpleAggregate "arrow::compute::SimpleAggregate":
         c_string function
         shared_ptr[CFunctionOptions] options
 
-    CResult[CDatum] GroupBy(const vector[CDatum]& arguments,
-                            const vector[CDatum]& keys,
-                            const vector[CDatum]& segment_keys,
-                            const vector[CAggregate]& aggregates)
+    CResult[shared_ptr[CTable]] GroupBy(const vector[shared_ptr[CArray]]& arguments,
+                                        const vector[shared_ptr[CArray]]& keys,
+                                        const vector[shared_ptr[CArray]]& segment_keys,
+                                        const vector[CSimpleAggregate]& aggregates)
 
 
 cdef extern from * namespace "arrow::compute":

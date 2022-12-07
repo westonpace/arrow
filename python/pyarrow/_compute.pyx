@@ -2191,18 +2191,31 @@ class RankOptions(_RankOptions):
         self._set_options(sort_keys, null_placement, tiebreaker)
 
 
+cdef _pack_groupby_args(object values, vector[shared_ptr[CArray]]* out):
+    for val in values:
+        if isinstance(val, (list, np.ndarray)):
+            val = lib.asarray(val)
+
+        if isinstance(val, Array):
+            out.push_back((<Array> val).sp_array)
+            continue
+
+        raise TypeError(f"Got unexpected argument type {type(val)} "
+                        "for group_by function, expected Array")
+
+
 def _group_by(args, keys, aggregations):
     cdef:
-        vector[CDatum] c_args
-        vector[CDatum] c_keys
+        vector[shared_ptr[CArray]] c_args
+        vector[shared_ptr[CArray]] c_keys
         # ARROW-18368: expose segment_keys
-        vector[CDatum] c_segment_keys
-        vector[CAggregate] c_aggregations
-        CDatum result
-        CAggregate c_aggr
+        vector[shared_ptr[CArray]] c_segment_keys
+        vector[CSimpleAggregate] c_aggregations
+        CSimpleAggregate c_aggr
+        shared_ptr[CTable] sp_table
 
-    _pack_compute_args(args, &c_args)
-    _pack_compute_args(keys, &c_keys)
+    _pack_groupby_args(args, &c_args)
+    _pack_groupby_args(keys, &c_keys)
 
     for aggr_func_name, aggr_opts in aggregations:
         c_aggr.function = tobytes(aggr_func_name)
@@ -2213,11 +2226,11 @@ def _group_by(args, keys, aggregations):
         c_aggregations.push_back(c_aggr)
 
     with nogil:
-        result = GetResultValue(
+        sp_table = GetResultValue(
             GroupBy(c_args, c_keys, c_segment_keys, c_aggregations)
         )
 
-    return wrap_datum(result)
+    return pyarrow_wrap_table(sp_table)
 
 
 cdef class Expression(_Weakrefable):

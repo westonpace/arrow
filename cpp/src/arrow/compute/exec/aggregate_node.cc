@@ -22,7 +22,6 @@
 #include <unordered_map>
 
 #include "arrow/compute/exec.h"
-#include "arrow/compute/exec/aggregate.h"
 #include "arrow/compute/exec/exec_plan.h"
 #include "arrow/compute/exec/options.h"
 #include "arrow/compute/exec/util.h"
@@ -43,6 +42,75 @@ using internal::checked_cast;
 namespace compute {
 
 namespace {
+
+Result<std::vector<const HashAggregateKernel*>> GetKernels(
+    ExecContext* ctx, const std::vector<Aggregate>& aggregates,
+    const std::vector<TypeHolder>& in_types) {
+  if (aggregates.size() != in_types.size()) {
+    return Status::Invalid(aggregates.size(), " aggregate functions were specified but ",
+                           in_types.size(), " arguments were provided.");
+  }
+
+  std::vector<const HashAggregateKernel*> kernels(in_types.size());
+
+  for (size_t i = 0; i < aggregates.size(); ++i) {
+    ARROW_ASSIGN_OR_RAISE(auto function,
+                          ctx->func_registry()->GetFunction(aggregates[i].function));
+    ARROW_ASSIGN_OR_RAISE(const Kernel* kernel,
+                          function->DispatchExact({in_types[i], uint32()}));
+    kernels[i] = static_cast<const HashAggregateKernel*>(kernel);
+  }
+  return kernels;
+}
+
+Result<std::vector<std::unique_ptr<KernelState>>> InitKernels(
+    const std::vector<const HashAggregateKernel*>& kernels, ExecContext* ctx,
+    const std::vector<Aggregate>& aggregates, const std::vector<TypeHolder>& in_types) {
+  std::vector<std::unique_ptr<KernelState>> states(kernels.size());
+
+  for (size_t i = 0; i < aggregates.size(); ++i) {
+    const FunctionOptions* options =
+        arrow::internal::checked_cast<const FunctionOptions*>(
+            aggregates[i].options.get());
+
+    if (options == nullptr) {
+      // use known default options for the named function if possible
+      auto maybe_function = ctx->func_registry()->GetFunction(aggregates[i].function);
+      if (maybe_function.ok()) {
+        options = maybe_function.ValueOrDie()->default_options();
+      }
+    }
+
+    KernelContext kernel_ctx{ctx};
+    ARROW_ASSIGN_OR_RAISE(states[i],
+                          kernels[i]->init(&kernel_ctx, KernelInitArgs{kernels[i],
+                                                                       {
+                                                                           in_types[i],
+                                                                           uint32(),
+                                                                       },
+                                                                       options}));
+  }
+
+  return std::move(states);
+}
+
+Result<FieldVector> ResolveKernels(
+    const std::vector<Aggregate>& aggregates,
+    const std::vector<const HashAggregateKernel*>& kernels,
+    const std::vector<std::unique_ptr<KernelState>>& states, ExecContext* ctx,
+    const std::vector<TypeHolder>& types) {
+  FieldVector fields(types.size());
+
+  for (size_t i = 0; i < kernels.size(); ++i) {
+    KernelContext kernel_ctx{ctx};
+    kernel_ctx.SetState(states[i].get());
+
+    ARROW_ASSIGN_OR_RAISE(auto type, kernels[i]->signature->out_type().Resolve(
+                                         &kernel_ctx, {types[i], uint32()}));
+    fields[i] = field(aggregates[i].function, type.GetSharedPtr());
+  }
+  return fields;
+}
 
 /// \brief A gated shared mutex is similar to a shared mutex, in that it allows either
 /// multiple shared readers or a unique writer access to the mutex, except that a waiting
@@ -470,18 +538,17 @@ class GroupByNode : public ExecNode {
                           GroupingSegmenter::Make(std::move(segment_key_types), ctx));
 
     // Construct aggregates
-    ARROW_ASSIGN_OR_RAISE(auto agg_kernels,
-                          internal::GetKernels(ctx, aggs, agg_src_types));
+    ARROW_ASSIGN_OR_RAISE(auto agg_kernels, GetKernels(ctx, aggs, agg_src_types));
 
     ARROW_ASSIGN_OR_RAISE(auto agg_states,
-                          internal::InitKernels(agg_kernels, ctx, aggs, agg_src_types));
+                          InitKernels(agg_kernels, ctx, aggs, agg_src_types));
 
     ARROW_ASSIGN_OR_RAISE(
         FieldVector agg_result_fields,
-        internal::ResolveKernels(aggs, agg_kernels, agg_states, ctx, agg_src_types));
+        ResolveKernels(aggs, agg_kernels, agg_states, ctx, agg_src_types));
 
     // Build field vector for output schema
-    FieldVector output_fields{keys.size() + aggs.size()};
+    FieldVector output_fields{keys.size() + aggs.size() + segment_keys.size()};
 
     // Aggregate fields come before key fields to match the behavior of GroupBy function
     for (size_t i = 0; i < aggs.size(); ++i) {
@@ -509,10 +576,10 @@ class GroupByNode : public ExecNode {
   Status ReconstructAggregates() {
     auto ctx = plan()->exec_context();
 
-    ARROW_ASSIGN_OR_RAISE(agg_kernels_, internal::GetKernels(ctx, aggs_, agg_src_types_));
+    ARROW_ASSIGN_OR_RAISE(agg_kernels_, GetKernels(ctx, aggs_, agg_src_types_));
 
-    ARROW_ASSIGN_OR_RAISE(
-        auto agg_states, internal::InitKernels(agg_kernels_, ctx, aggs_, agg_src_types_));
+    ARROW_ASSIGN_OR_RAISE(auto agg_states,
+                          InitKernels(agg_kernels_, ctx, aggs_, agg_src_types_));
 
     return Status::OK();
   }
@@ -797,8 +864,8 @@ class GroupByNode : public ExecNode {
       agg_src_types[i] = input_schema->field(agg_src_field_id)->type().get();
     }
 
-    ARROW_ASSIGN_OR_RAISE(state->agg_states, internal::InitKernels(agg_kernels_, ctx_,
-                                                                   aggs_, agg_src_types));
+    ARROW_ASSIGN_OR_RAISE(state->agg_states,
+                          InitKernels(agg_kernels_, ctx_, aggs_, agg_src_types));
 
     return Status::OK();
   }
