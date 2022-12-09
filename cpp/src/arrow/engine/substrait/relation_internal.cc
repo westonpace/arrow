@@ -127,33 +127,32 @@ Result<DeclarationInfo> ProcessExtensionEmit(
       std::move(emit_schema)};
 }
 
-Result<RelationInfo> GetExtensionRelationInfo(
-    const substrait::Rel& rel, const ExtensionSet& ext_set,
-    const ConversionOptions& conversion_options) {
+Result<RelationInfo> GetExtensionRelationInfo(const substrait::Rel& rel,
+                                              const ExtensionSet& ext_set,
+                                              const ConversionOptions& conv_opts,
+                                              std::vector<DeclarationInfo>& inputs) {
+  inputs.clear();
   switch (rel.rel_type_case()) {
     case substrait::Rel::RelTypeCase::kExtensionLeaf: {
       const auto& ext = rel.extension_leaf();
-      return conversion_options.extension_provider->MakeRel({}, ext.detail(), ext_set);
+      return conv_opts.extension_provider->MakeRel(inputs, ext.detail(), ext_set);
     }
 
     case substrait::Rel::RelTypeCase::kExtensionSingle: {
       const auto& ext = rel.extension_single();
       ARROW_ASSIGN_OR_RAISE(DeclarationInfo input,
-                            FromProto(ext.input(), ext_set, conversion_options));
-      return conversion_options.extension_provider->MakeRel({input}, ext.detail(),
-                                                            ext_set);
+                            FromProto(ext.input(), ext_set, conv_opts));
+      inputs.push_back(std::move(input));
+      return conv_opts.extension_provider->MakeRel(inputs, ext.detail(), ext_set);
     }
 
     case substrait::Rel::RelTypeCase::kExtensionMulti: {
       const auto& ext = rel.extension_multi();
-      std::vector<DeclarationInfo> inputs;
       for (const auto& input : ext.inputs()) {
-        ARROW_ASSIGN_OR_RAISE(auto input_info,
-                              FromProto(input, ext_set, conversion_options));
+        ARROW_ASSIGN_OR_RAISE(auto input_info, FromProto(input, ext_set, conv_opts));
         inputs.push_back(std::move(input_info));
       }
-      return conversion_options.extension_provider->MakeRel(std::move(inputs),
-                                                            ext.detail(), ext_set);
+      return conv_opts.extension_provider->MakeRel(inputs, ext.detail(), ext_set);
     }
 
     default: {
@@ -706,8 +705,10 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
     case substrait::Rel::RelTypeCase::kExtensionLeaf:
     case substrait::Rel::RelTypeCase::kExtensionSingle:
     case substrait::Rel::RelTypeCase::kExtensionMulti: {
-      ARROW_ASSIGN_OR_RAISE(auto ext_rel_info,
-                            GetExtensionRelationInfo(rel, ext_set, conversion_options));
+      std::vector<DeclarationInfo> ext_rel_inputs;
+      ARROW_ASSIGN_OR_RAISE(
+          auto ext_rel_info,
+          GetExtensionRelationInfo(rel, ext_set, conversion_options, ext_rel_inputs));
       const auto& ext_decl_info = ext_rel_info.decl_info;
       auto ext_common_opt = GetExtensionRelCommon(rel);
       bool has_emit = ext_common_opt && ext_common_opt->emit_kind_case() ==
@@ -729,7 +730,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       } else {
         // default output mapping
         int emit_size = 0;
-        for (const auto& input : ext_rel_info.inputs) {
+        for (const auto& input : ext_rel_inputs) {
           emit_size += input.output_schema->num_fields();
         }
         emit_order.reserve(emit_size);

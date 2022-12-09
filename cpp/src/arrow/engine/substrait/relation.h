@@ -35,8 +35,6 @@ struct ARROW_ENGINE_EXPORT DeclarationInfo {
 struct ARROW_ENGINE_EXPORT RelationInfo {
   /// The execution information produced thus far.
   DeclarationInfo decl_info;
-  /// The execution information of the inputs to the relation.
-  std::vector<DeclarationInfo> inputs;
   /// A vector of indices, one per input field per input in order, each index referring
   /// to the corresponding field within the output schema, if it is in the output, or -1
   /// otherwise. Each location in this vector is a field input index. This vector is

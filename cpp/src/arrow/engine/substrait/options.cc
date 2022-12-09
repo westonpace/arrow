@@ -30,20 +30,20 @@ namespace engine {
 
 class DefaultExtensionProvider : public ExtensionProvider {
  public:
-  Result<RelationInfo> MakeRel(std::vector<DeclarationInfo> inputs,
+  Result<RelationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
                                const google::protobuf::Any& rel,
                                const ExtensionSet& ext_set) override {
     if (rel.Is<substrait_ext::AsOfJoinRel>()) {
       substrait_ext::AsOfJoinRel as_of_join_rel;
       rel.UnpackTo(&as_of_join_rel);
-      return MakeAsOfJoinRel(std::move(inputs), as_of_join_rel, ext_set);
+      return MakeAsOfJoinRel(inputs, as_of_join_rel, ext_set);
     }
     return Status::NotImplemented("Unrecognized extension in Susbstrait plan: ",
                                   rel.DebugString());
   }
 
  private:
-  Result<RelationInfo> MakeAsOfJoinRel(std::vector<DeclarationInfo> inputs,
+  Result<RelationInfo> MakeAsOfJoinRel(const std::vector<DeclarationInfo>& inputs,
                                        const substrait_ext::AsOfJoinRel& as_of_join_rel,
                                        const ExtensionSet& ext_set) {
     if (inputs.size() < 2) {
@@ -103,7 +103,6 @@ class DefaultExtensionProvider : public ExtensionProvider {
     return RelationInfo{
         {compute::Declaration("asofjoin", input_decls, std::move(asofjoin_node_opts)),
          std::move(schema)},
-        std::move(inputs),
         std::move(field_output_indices)};
   }
 };
