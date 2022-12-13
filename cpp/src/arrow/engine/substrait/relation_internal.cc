@@ -130,7 +130,12 @@ Result<DeclarationInfo> ProcessExtensionEmit(
 Result<RelationInfo> GetExtensionRelationInfo(const substrait::Rel& rel,
                                               const ExtensionSet& ext_set,
                                               const ConversionOptions& conv_opts,
-                                              std::vector<DeclarationInfo>& inputs) {
+                                              std::vector<DeclarationInfo>* inputs_arg) {
+  if (inputs_arg == nullptr) {
+    std::vector<DeclarationInfo> inputs_tmp;
+    return GetExtensionRelationInfo(rel, ext_set, conv_opts, &inputs_tmp);
+  }
+  std::vector<DeclarationInfo>& inputs = *inputs_arg;
   inputs.clear();
   switch (rel.rel_type_case()) {
     case substrait::Rel::RelTypeCase::kExtensionLeaf: {
@@ -708,7 +713,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       std::vector<DeclarationInfo> ext_rel_inputs;
       ARROW_ASSIGN_OR_RAISE(
           auto ext_rel_info,
-          GetExtensionRelationInfo(rel, ext_set, conversion_options, ext_rel_inputs));
+          GetExtensionRelationInfo(rel, ext_set, conversion_options, &ext_rel_inputs));
       const auto& ext_decl_info = ext_rel_info.decl_info;
       auto ext_common_opt = GetExtensionRelCommon(rel);
       bool has_emit = ext_common_opt && ext_common_opt->emit_kind_case() ==
