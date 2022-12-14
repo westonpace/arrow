@@ -98,15 +98,15 @@ Result<DeclarationInfo> ProcessEmit(const RelMessage& rel,
 }
 
 Result<DeclarationInfo> ProcessExtensionEmit(
-    const DeclarationInfo& no_emit_declr, const std::vector<int>& emit_info,
+    const DeclarationInfo& no_emit_declr, const std::vector<int>& emit_order,
     const std::vector<int>& field_output_indices) {
   const std::shared_ptr<Schema>& input_schema = no_emit_declr.output_schema;
   std::vector<compute::Expression> proj_field_refs;
-  proj_field_refs.reserve(emit_info.size());
+  proj_field_refs.reserve(emit_order.size());
   FieldVector emit_fields;
-  emit_fields.reserve(emit_info.size());
+  emit_fields.reserve(emit_order.size());
 
-  for (int emit_idx : emit_info) {
+  for (int emit_idx : emit_order) {
     if (emit_idx < 0 || static_cast<size_t>(emit_idx) >= field_output_indices.size()) {
       return Status::Invalid("Out of bounds emit index ", emit_idx);
     }
