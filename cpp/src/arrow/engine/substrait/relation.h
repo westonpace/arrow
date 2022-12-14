@@ -32,6 +32,9 @@ struct ARROW_ENGINE_EXPORT DeclarationInfo {
 };
 
 /// Information resulting from converting a Substrait relation.
+///
+/// RelationInfo adds the "output indices" field for the extension to define how the
+/// fields should be mapped to get the standard indices expected by Substrait.
 struct ARROW_ENGINE_EXPORT RelationInfo {
   /// The execution information produced thus far.
   DeclarationInfo decl_info;

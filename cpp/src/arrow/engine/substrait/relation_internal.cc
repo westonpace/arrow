@@ -725,15 +725,20 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
         return Status::NotImplemented("Emit not supported by ",
                                       ext_decl_info.declaration.factory_name);
       }
+      // Set up the emit order - an ordered list of indices that specifies an output
+      // mapping as expected by Substrait. This is a sublist of [0..N), where N is the
+      // total number of input fields across all inputs of the relation, that selects
+      // from these input fields.
       std::vector<int> emit_order;
       if (has_emit) {
+        // the emit order in defined in the Substrait plan - pick it up
         const auto& emit_info = ext_common_opt->emit();
         emit_order.reserve(emit_info.output_mapping_size());
         for (const auto& emit_idx : emit_info.output_mapping()) {
           emit_order.push_back(emit_idx);
         }
       } else {
-        // default output mapping
+        // the emit order is the default output mapping [0..N)
         int emit_size = 0;
         for (const auto& input : ext_rel_inputs) {
           emit_size += input.output_schema->num_fields();
