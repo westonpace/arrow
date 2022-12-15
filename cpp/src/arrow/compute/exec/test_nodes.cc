@@ -60,7 +60,7 @@ class ConcatNode : public ExecNode {
         pause_if_above_(pause_if_above),
         resume_if_below_(resume_if_below) {
     for (std::size_t i = 0; i < inputs_.size(); i++) {
-      input_ptrs_into_queue_.push_back(kNone);
+      input_to_batch_num_.push_back(0);
       is_input_paused_.push_back(false);
     }
   }
@@ -95,12 +95,12 @@ class ConcatNode : public ExecNode {
     std::unique_lock lk(mutex_);
     std::size_t input_idx =
         std::find(inputs_.begin(), inputs_.end(), input) - inputs_.begin();
-    auto itr = input_ptrs_into_queue_[input_idx];
-    if (itr == kNone) {
+    int batch_num = input_to_batch_num_[input_idx];
+    if (batch_num >= batches_sent_ + static_cast<int>(queue_.size())) {
       // Add a new group to the queue, potentially pausing this input if the queue is full
       std::vector<ExecBatch>& next_group = AddNewGroupUnlocked();
       next_group[input_idx] = batch;
-      input_ptrs_into_queue_[input_idx] = kNone;
+      input_to_batch_num_[input_idx]++;
 
       int num_groups_queued = static_cast<int>(queue_.size());
       if (num_groups_queued > pause_if_above_) {
@@ -109,12 +109,17 @@ class ConcatNode : public ExecNode {
       return;
     }
 
+    std::vector<ExecBatch>& group = queue_[batch_num - batches_sent_];
+
     // Add to an existing group, potentially outputting if we fill the group and
     // potentially unpausing if we output
-    (*itr)[input_idx] = batch;
-    if (AllComplete(*itr)) {
-      outputs_[0]->InputReceived(this, CombineBatches(*itr));
-      CompleteGroupUnlocked(itr);
+    group[input_idx] = batch;
+    int new_batch_num = batch_num + 1;
+    input_to_batch_num_[input_idx] = new_batch_num;
+    if (AllComplete(group)) {
+      outputs_[0]->InputReceived(this, CombineBatches(group));
+      queue_.pop_front();
+      batches_sent_++;
       ResumeThoseThatCanBeResumedUnlocked();
       lk.unlock();
       if (batch_counter_.Increment()) {
@@ -122,12 +127,9 @@ class ConcatNode : public ExecNode {
       }
     } else {
       // We add one to this queue, potentially pausing this input
-      input_ptrs_into_queue_[input_idx]++;
-      if (input_ptrs_into_queue_[input_idx] == queue_.end()) {
-        input_ptrs_into_queue_[input_idx] = kNone;
-        if (static_cast<int>(queue_.size()) > pause_if_above_) {
-          PauseIfNeededUnlocked(input_idx);
-        }
+      if ((new_batch_num - batches_sent_) >= static_cast<int>(queue_.size()) &&
+          static_cast<int>(queue_.size()) > pause_if_above_) {
+        PauseIfNeededUnlocked(input_idx);
       }
     }
   }
@@ -135,13 +137,7 @@ class ConcatNode : public ExecNode {
   void DebugPrintQueue(std::size_t label) {
     std::cout << label << ":[";
     for (std::size_t i = 0; i < inputs_.size(); i++) {
-      auto itr = input_ptrs_into_queue_[i];
-      if (itr == kNone) {
-        std::cout << "<" << queue_.size() << ">";
-      } else {
-        std::size_t len = itr - queue_.begin();
-        std::cout << len;
-      }
+      std::cout << input_to_batch_num_[i] - batches_sent_;
       if (i < inputs_.size() - 1) {
         std::cout << ",";
       }
@@ -194,11 +190,8 @@ class ConcatNode : public ExecNode {
       if (!is_input_paused_[i]) {
         continue;
       }
-      auto itr = input_ptrs_into_queue_[i];
-      int num_queued = static_cast<int>(queue_.size());
-      if (itr != kNone) {
-        num_queued = static_cast<int>(itr - queue_.begin());
-      }
+      int batch_num = input_to_batch_num_[i];
+      int num_queued = batch_num - batches_sent_;
       if (num_queued < resume_if_below_) {
         std::cout << "Resuming input: " + std::to_string(i) + "\n";
         is_input_paused_[i] = false;
@@ -210,26 +203,7 @@ class ConcatNode : public ExecNode {
   std::vector<ExecBatch>& AddNewGroupUnlocked() {
     std::vector<ExecBatch> next_group(inputs_.size());
     queue_.push_back(std::move(next_group));
-    for (std::size_t i = 0; i < inputs_.size(); i++) {
-      if (input_ptrs_into_queue_[i] == kNone) {
-        input_ptrs_into_queue_[i] = --queue_.end();
-      }
-    }
     return *(--queue_.end());
-  }
-
-  void CompleteGroupUnlocked(std::deque<std::vector<ExecBatch>>::iterator itr) {
-    auto next = itr;
-    next++;
-    if (next == queue_.end()) {
-      next = kNone;
-    }
-    for (std::size_t i = 0; i < inputs_.size(); i++) {
-      if (input_ptrs_into_queue_[i] == itr) {
-        input_ptrs_into_queue_[i] = next;
-      }
-    }
-    queue_.erase(itr);
   }
 
   ExecBatch CombineBatches(const std::vector<ExecBatch>& group) {
@@ -254,15 +228,15 @@ class ConcatNode : public ExecNode {
     return true;
   }
 
-  static inline const std::deque<std::vector<ExecBatch>>::iterator kNone = {};
   std::mutex mutex_;
   std::deque<std::vector<ExecBatch>> queue_;
-  std::vector<std::deque<std::vector<ExecBatch>>::iterator> input_ptrs_into_queue_;
+  std::vector<int> input_to_batch_num_;
   std::vector<bool> is_input_paused_;
   int pause_if_above_;
   int resume_if_below_;
   int pause_counter_ = 1;
   int max_out_pause_counter_ = 0;
+  int batches_sent_ = 0;
   AtomicCounter batch_counter_;
 };
 

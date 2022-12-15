@@ -30,9 +30,9 @@ namespace engine {
 
 class DefaultExtensionProvider : public ExtensionProvider {
  public:
-  Result<DeclarationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
-                                  const google::protobuf::Any& rel,
-                                  const ExtensionSet& ext_set) override {
+  Result<RelationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
+                               const google::protobuf::Any& rel,
+                               const ExtensionSet& ext_set) override {
     if (rel.Is<substrait_ext::AsOfJoinRel>()) {
       substrait_ext::AsOfJoinRel as_of_join_rel;
       rel.UnpackTo(&as_of_join_rel);
@@ -43,9 +43,9 @@ class DefaultExtensionProvider : public ExtensionProvider {
   }
 
  private:
-  Result<DeclarationInfo> MakeAsOfJoinRel(
-      const std::vector<DeclarationInfo>& inputs,
-      const substrait_ext::AsOfJoinRel& as_of_join_rel, const ExtensionSet& ext_set) {
+  Result<RelationInfo> MakeAsOfJoinRel(const std::vector<DeclarationInfo>& inputs,
+                                       const substrait_ext::AsOfJoinRel& as_of_join_rel,
+                                       const ExtensionSet& ext_set) {
     if (inputs.size() < 2) {
       return Status::Invalid("substrait::AsOfJoinNode too few input tables: ",
                              inputs.size());
@@ -89,8 +89,10 @@ class DefaultExtensionProvider : public ExtensionProvider {
     for (size_t i = 0; i < inputs.size(); i++) {
       input_schema[i] = inputs[i].output_schema;
     }
+    std::vector<int> field_output_indices;
     ARROW_ASSIGN_OR_RAISE(auto schema,
-                          compute::asofjoin::MakeOutputSchema(input_schema, input_keys));
+                          compute::asofjoin::MakeOutputSchema(input_schema, input_keys,
+                                                              &field_output_indices));
     compute::AsofJoinNodeOptions asofjoin_node_opts{std::move(input_keys), tolerance};
 
     // declaration
@@ -98,9 +100,10 @@ class DefaultExtensionProvider : public ExtensionProvider {
     for (size_t i = 0; i < inputs.size(); i++) {
       input_decls[i] = inputs[i].declaration;
     }
-    return DeclarationInfo{
-        compute::Declaration("asofjoin", input_decls, std::move(asofjoin_node_opts)),
-        std::move(schema)};
+    return RelationInfo{
+        {compute::Declaration("asofjoin", input_decls, std::move(asofjoin_node_opts)),
+         std::move(schema)},
+        std::move(field_output_indices)};
   }
 };
 

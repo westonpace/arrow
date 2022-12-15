@@ -73,9 +73,9 @@ class ARROW_ENGINE_EXPORT ExtensionProvider {
  public:
   static std::shared_ptr<ExtensionProvider> kDefaultExtensionProvider;
   virtual ~ExtensionProvider() = default;
-  virtual Result<DeclarationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
-                                          const google::protobuf::Any& rel,
-                                          const ExtensionSet& ext_set) = 0;
+  virtual Result<RelationInfo> MakeRel(const std::vector<DeclarationInfo>& inputs,
+                                       const google::protobuf::Any& rel,
+                                       const ExtensionSet& ext_set) = 0;
 };
 
 /// Options that control the conversion between Substrait and Acero representations of a
