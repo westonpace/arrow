@@ -601,8 +601,9 @@ PlatformFilename PlatformFilename::Join(const PlatformFilename& child) const {
   }
 }
 
-Result<PlatformFilename> PlatformFilename::Join(const std::string& child_name) const {
-  ARROW_ASSIGN_OR_RAISE(auto child, PlatformFilename::FromString(child_name));
+Result<PlatformFilename> PlatformFilename::Join(std::string_view child_name) const {
+  ARROW_ASSIGN_OR_RAISE(auto child,
+                        PlatformFilename::FromString(std::string(child_name)));
   return Join(child);
 }
 

@@ -69,7 +69,7 @@ class ARROW_EXPORT PlatformFilename {
 
   // These functions can fail for character encoding reasons.
   static Result<PlatformFilename> FromString(const std::string& file_name);
-  Result<PlatformFilename> Join(const std::string& child_name) const;
+  Result<PlatformFilename> Join(std::string_view child_name) const;
 
   PlatformFilename Join(const PlatformFilename& child_name) const;
 
