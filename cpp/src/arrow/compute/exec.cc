@@ -147,6 +147,18 @@ ExecBatch ExecBatch::Slice(int64_t offset, int64_t length) const {
   return out;
 }
 
+Result<ExecBatch> ExecBatch::SelectValues(const std::vector<int>& ids) const {
+  std::vector<Datum> selected_values;
+  selected_values.reserve(ids.size());
+  for (int id : ids) {
+    if (id < 0 || static_cast<size_t>(id) >= values.size()) {
+      return Status::Invalid("ExecBatch invalid value selection: ", id);
+    }
+    selected_values.push_back(values[id]);
+  }
+  return ExecBatch(std::move(selected_values), length);
+}
+
 Result<ExecBatch> ExecBatch::Make(std::vector<Datum> values, int64_t length) {
   if (values.empty() && length < 0) {
     return Status::Invalid("Cannot infer ExecBatch length without at least one value");
@@ -157,7 +169,7 @@ Result<ExecBatch> ExecBatch::Make(std::vector<Datum> values, int64_t length) {
       continue;
     }
 
-    if (length == -1) {
+    if (length < 0) {
       length = value.length();
       continue;
     }
@@ -168,7 +180,7 @@ Result<ExecBatch> ExecBatch::Make(std::vector<Datum> values, int64_t length) {
     }
   }
 
-  if (length == -1) {
+  if (length < 0) {
     length = 1;
   }
 
