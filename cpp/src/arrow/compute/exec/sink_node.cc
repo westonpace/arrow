@@ -165,9 +165,9 @@ class SinkNode : public ExecNode {
 
   void StopProducing() override {
     EVENT(span_, "StopProducing");
-
-    Finish();
-    inputs_[0]->StopProducing(this);
+    if (input_counter_.Cancel()) {
+      Finish(false);
+    }
   }
 
   void RecordBackpressureBytesUsed(const ExecBatch& batch) {
@@ -206,7 +206,7 @@ class SinkNode : public ExecNode {
     if (!did_push) return;  // producer_ was Closed already
 
     if (input_counter_.Increment()) {
-      Finish();
+      Finish(true);
     }
   }
 
@@ -217,25 +217,19 @@ class SinkNode : public ExecNode {
     producer_.Push(std::move(error));
 
     if (input_counter_.Cancel()) {
-      Finish();
+      Finish(false);
     }
-    inputs_[0]->StopProducing(this);
   }
 
   void InputFinished(ExecNode* input, int total_batches) override {
     EVENT(span_, "InputFinished", {{"batches.length", total_batches}});
     if (input_counter_.SetTotal(total_batches)) {
-      Finish();
+      Finish(true);
     }
   }
 
  protected:
-  virtual void Finish() {
-    if (producer_.Close()) {
-      finished_.MarkFinished();
-    }
-  }
-
+  virtual void Finish(bool finished_ok) { producer_.Close(); }
   static Status ValidateOptions(const SinkNodeOptions& sink_options) {
     if (!sink_options.generator) {
       return Status::Invalid(
@@ -336,9 +330,7 @@ class ConsumingSinkNode : public ExecNode, public BackpressureControl {
 
   void StopProducing() override {
     EVENT(span_, "StopProducing");
-    if (input_counter_.Cancel()) {
-      Finish(Status::OK());
-    }
+    input_counter_.Cancel();
   }
 
   void InputReceived(ExecNode* input, ExecBatch batch) override {
@@ -358,15 +350,12 @@ class ConsumingSinkNode : public ExecNode, public BackpressureControl {
 
     Status consumption_status = consumer_->Consume(std::move(batch));
     if (!consumption_status.ok()) {
-      if (input_counter_.Cancel()) {
-        Finish(std::move(consumption_status));
-      }
-      inputs_[0]->StopProducing(this);
+      input_counter_.Cancel();
       return;
     }
 
     if (input_counter_.Increment()) {
-      Finish(Status::OK());
+      Finish();
     }
   }
 
@@ -374,25 +363,20 @@ class ConsumingSinkNode : public ExecNode, public BackpressureControl {
     EVENT(span_, "ErrorReceived", {{"error", error.message()}});
     DCHECK_EQ(input, inputs_[0]);
 
-    if (input_counter_.Cancel()) Finish(error);
-
-    inputs_[0]->StopProducing(this);
+    input_counter_.Cancel();
   }
 
   void InputFinished(ExecNode* input, int total_batches) override {
     EVENT(span_, "InputFinished", {{"batches.length", total_batches}});
     if (input_counter_.SetTotal(total_batches)) {
-      Finish(Status::OK());
+      Finish();
     }
   }
 
  protected:
-  void Finish(const Status& finish_st) {
-    if (finish_st.ok()) {
-      plan_->query_context()->async_scheduler()->AddSimpleTask(
-          [this] { return consumer_->Finish(); });
-    }
-    finished_.MarkFinished(finish_st);
+  void Finish() {
+    plan_->query_context()->async_scheduler()->AddSimpleTask(
+        [this] { return consumer_->Finish(); });
   }
 
   AtomicCounter input_counter_;
@@ -495,7 +479,7 @@ struct OrderBySinkNode final : public SinkNode {
     if (ErrorIfNotOk(maybe_batch.status())) {
       StopProducing();
       if (input_counter_.Cancel()) {
-        finished_.MarkFinished(maybe_batch.status());
+        Finish(false);
       }
       return;
     }
@@ -503,7 +487,7 @@ struct OrderBySinkNode final : public SinkNode {
 
     impl_->InputReceived(std::move(record_batch));
     if (input_counter_.Increment()) {
-      Finish();
+      Finish(true);
     }
   }
 
@@ -521,14 +505,18 @@ struct OrderBySinkNode final : public SinkNode {
     return Status::OK();
   }
 
-  void Finish() override {
+  void Finish(bool finished_ok) override {
     util::tracing::Span span;
     START_COMPUTE_SPAN_WITH_PARENT(span, span_, "Finish", {{"node.label", label()}});
-    Status st = DoFinish();
-    if (ErrorIfNotOk(st)) {
-      producer_.Push(std::move(st));
+    if (finished_ok) {
+      Status st = DoFinish();
+      if (!st.ok()) {
+        producer_.Push(std::move(st));
+        SinkNode::Finish(false);
+        return;
+      }
     }
-    SinkNode::Finish();
+    SinkNode::Finish(finished_ok);
   }
 
  protected:

@@ -109,7 +109,7 @@ class ProjectNode : public MapNode {
       END_SPAN(span);
       return result;
     };
-    this->SubmitTask(std::move(func), std::move(batch));
+    this->MapBatch(std::move(func), std::move(batch));
   }
 
  protected:

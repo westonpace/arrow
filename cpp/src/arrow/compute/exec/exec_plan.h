@@ -101,7 +101,7 @@ class ARROW_EXPORT ExecPlan : public std::enable_shared_from_this<ExecPlan> {
   /// is stopped before all of its outputs.
   void StopProducing();
 
-  /// \brief A future which will be marked finished when all nodes have stopped producing.
+  /// \brief A future which will be marked finished when the plan has finished.
   Future<> finished();
 
   /// \brief Return whether the plan has non-empty metadata
@@ -161,17 +161,14 @@ class ARROW_EXPORT ExecNode {
   ///   and StopProducing()
 
   /// Transfer input batch to ExecNode
-  virtual void InputReceived(ExecNode* input, ExecBatch batch) = 0;
-
-  /// Signal error to ExecNode
-  virtual void ErrorReceived(ExecNode* input, Status error) = 0;
+  virtual Status InputReceived(ExecNode* input, ExecBatch batch) = 0;
 
   /// Mark the inputs finished after the given number of batches.
   ///
   /// This may be called before all inputs are received.  This simply fixes
   /// the total number of incoming batches for an input, so that the ExecNode
   /// knows when it has received all input, regardless of order.
-  virtual void InputFinished(ExecNode* input, int total_batches) = 0;
+  virtual Status InputFinished(ExecNode* input, int total_batches) = 0;
 
   /// \brief Perform any needed initialization
   ///
@@ -193,7 +190,7 @@ class ARROW_EXPORT ExecNode {
   /// - PauseProducing(), ResumeProducing(), StopProducing() may be called
   ///   concurrently (but only after StartProducing() has returned successfully)
   /// - PauseProducing(), ResumeProducing(), StopProducing() may be called
-  ///   by the downstream nodes' InputReceived(), ErrorReceived(), InputFinished()
+  ///   by the downstream nodes' InputReceived(), InputFinished()
   ///   methods
   /// - StopProducing() should recurse into the inputs
   /// - StopProducing() must be idempotent
@@ -211,11 +208,11 @@ class ARROW_EXPORT ExecNode {
   // Alternate rules:
   // - StartProducing(), ResumeProducing() can call synchronously into
   //   its ouputs' consuming methods (InputReceived() etc.)
-  // - InputReceived(), ErrorReceived(), InputFinished() can call asynchronously
+  // - InputReceived(), InputFinished() can call asynchronously
   //   into its inputs' PauseProducing(), StopProducing()
   //
   // Alternate API:
-  // - InputReceived(), ErrorReceived(), InputFinished() return a ProductionHint
+  // - InputReceived(), InputFinished() return a ProductionHint
   //   enum: either None (default), PauseProducing, ResumeProducing, StopProducing
   // - A method allows passing a ProductionHint asynchronously from an output node
   //   (replacing PauseProducing(), ResumeProducing(), StopProducing())
@@ -278,9 +275,6 @@ class ARROW_EXPORT ExecNode {
   /// \brief Stop producing definitively to all outputs
   virtual void StopProducing() = 0;
 
-  /// \brief A future which will be marked finished when this node has stopped producing.
-  virtual Future<> finished() { return finished_; }
-
   std::string ToString(int indent = 0) const;
 
  protected:
@@ -303,9 +297,6 @@ class ARROW_EXPORT ExecNode {
   std::shared_ptr<Schema> output_schema_;
   int num_outputs_;
   NodeVector outputs_;
-
-  // Future to sync finished
-  Future<> finished_ = Future<>::Make();
 
   util::tracing::Span span_;
 };

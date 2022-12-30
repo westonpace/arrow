@@ -624,8 +624,6 @@ TEST(ExecPlanExecution, SourceConsumingSink) {
       ASSERT_OK(MakeExecNode("consuming_sink", plan.get(), {source},
                              ConsumingSinkNodeOptions(consumer)));
       ASSERT_OK(plan->StartProducing());
-      // Source should finish fairly quickly
-      ASSERT_FINISHES_OK(source->finished());
       SleepABit();
       // Consumer isn't finished and so plan shouldn't have finished
       AssertNotFinished(plan->finished());
@@ -657,8 +655,6 @@ TEST(ExecPlanExecution, SourceTableConsumingSink) {
                                                       basic_data.gen(parallel, slow))));
       ASSERT_OK(MakeExecNode("table_sink", plan.get(), {source}, options));
       ASSERT_OK(plan->StartProducing());
-      // Source should finish fairly quickly
-      ASSERT_FINISHES_OK(source->finished());
       SleepABit();
       ASSERT_OK_AND_ASSIGN(auto expected,
                            TableFromExecBatches(basic_data.schema, basic_data.batches));
@@ -736,12 +732,14 @@ TEST(ExecPlanExecution, ConsumingSinkError) {
   std::vector<std::shared_ptr<SinkNodeConsumer>> consumers{
       std::make_shared<InitErrorConsumer>(), std::make_shared<ConsumeErrorConsumer>(),
       std::make_shared<FinishErrorConsumer>()};
+  std::vector<std::string> case_names = {"InitError", "ConsumeError", "FinishError"};
 
-  for (auto& consumer : consumers) {
+  for (std::size_t i = 0; i < consumers.size(); i++) {
+    ARROW_SCOPED_TRACE("case=", case_names[i]);
     auto basic_data = MakeBasicBatches();
     Declaration plan = Declaration::Sequence(
         {{"source", SourceNodeOptions(basic_data.schema, basic_data.gen(false, false))},
-         {"consuming_sink", ConsumingSinkNodeOptions(consumer)}});
+         {"consuming_sink", ConsumingSinkNodeOptions(consumers[i])}});
     // Since the source node is not parallel the entire plan is run during StartProducing
     ASSERT_RAISES(Invalid, DeclarationToStatus(std::move(plan)));
   }

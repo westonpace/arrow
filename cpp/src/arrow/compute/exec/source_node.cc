@@ -73,12 +73,6 @@ struct SourceNode : ExecNode {
   [[noreturn]] void InputFinished(ExecNode*, int) override { NoInputs(); }
 
   Status StartProducing() override {
-    START_COMPUTE_SPAN(span_, std::string(kind_name()) + ":" + label(),
-                       {{"node.kind", kind_name()},
-                        {"node.label", label()},
-                        {"node.output_schema", output_schema()->ToString()},
-                        {"node.detail", ToString()}});
-    END_SPAN_ON_FUTURE_COMPLETION(span_, finished_);
     {
       // If another exec node encountered an error during its StartProducing call
       // it might have already called StopProducing on all of its inputs (including this
@@ -104,7 +98,6 @@ struct SourceNode : ExecNode {
     ARROW_ASSIGN_OR_RAISE(Future<> scan_task,
                           plan_->query_context()->BeginExternalTask());
     if (!scan_task.is_valid()) {
-      finished_.MarkFinished();
       // Plan has already been aborted, no need to start scanning
       return Status::OK();
     }
@@ -170,10 +163,8 @@ struct SourceNode : ExecNode {
                        [this, scan_task](int total_batches) mutable {
                          outputs_[0]->InputFinished(this, total_batches);
                          scan_task.MarkFinished();
-                         finished_.MarkFinished();
                        },
                        {}, options);
-    if (!executor && finished_.is_finished()) return finished_.status();
     return Status::OK();
   }
 
@@ -214,9 +205,6 @@ struct SourceNode : ExecNode {
   void StopProducing() override {
     std::unique_lock<std::mutex> lock(mutex_);
     stop_requested_ = true;
-    if (!started_) {
-      finished_.MarkFinished();
-    }
   }
 
  private:

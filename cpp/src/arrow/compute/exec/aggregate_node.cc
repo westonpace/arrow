@@ -217,9 +217,7 @@ class ScalarAggregateNode : public ExecNode {
 
   void StopProducing() override {
     EVENT(span_, "StopProducing");
-    if (input_counter_.Cancel()) {
-      finished_.MarkFinished();
-    }
+    input_counter_.Cancel();
     inputs_[0]->StopProducing(this);
   }
 
@@ -253,7 +251,6 @@ class ScalarAggregateNode : public ExecNode {
     }
 
     outputs_[0]->InputReceived(this, std::move(batch));
-    finished_.MarkFinished();
     return Status::OK();
   }
 
@@ -285,10 +282,7 @@ class GroupByNode : public ExecNode {
           OutputNthBatch(task_id);
           return Status::OK();
         },
-        [this](size_t) {
-          finished_.MarkFinished();
-          return Status::OK();
-        });
+        [](size_t) { return Status::OK(); });
     return Status::OK();
   }
 
@@ -479,9 +473,6 @@ class GroupByNode : public ExecNode {
   }
 
   void OutputNthBatch(int64_t n) {
-    // bail if StopProducing was called
-    if (finished_.is_finished()) return;
-
     int64_t batch_size = output_batch_size();
     outputs_[0]->InputReceived(this, out_data_.Slice(batch_size * n, batch_size));
   }
@@ -505,7 +496,7 @@ class GroupByNode : public ExecNode {
     return Status::OK();
   }
 
-  void InputReceived(ExecNode* input, ExecBatch batch) override {
+  Status InputReceived(ExecNode* input, ExecBatch batch) override {
     EVENT(span_, "InputReceived", {{"batch.length", batch.length}});
     util::tracing::Span span;
     START_COMPUTE_SPAN_WITH_PARENT(span, span_, "InputReceived",
@@ -513,37 +504,25 @@ class GroupByNode : public ExecNode {
                                     {"node.label", label()},
                                     {"batch.length", batch.length}});
 
-    // bail if StopProducing was called
-    if (finished_.is_finished()) return;
-
     DCHECK_EQ(input, inputs_[0]);
 
-    if (ErrorIfNotOk(Consume(ExecSpan(batch)))) return;
+    ARROW_RETURN_NOT_OK(Consume(ExecSpan(batch)));
 
     if (input_counter_.Increment()) {
-      ErrorIfNotOk(OutputResult());
+      return OutputResult();
     }
+    return Status::OK();
   }
 
-  void ErrorReceived(ExecNode* input, Status error) override {
-    EVENT(span_, "ErrorReceived", {{"error", error.message()}});
-
-    DCHECK_EQ(input, inputs_[0]);
-
-    outputs_[0]->ErrorReceived(this, std::move(error));
-  }
-
-  void InputFinished(ExecNode* input, int total_batches) override {
+  Status InputFinished(ExecNode* input, int total_batches) override {
     EVENT(span_, "InputFinished", {{"batches.length", total_batches}});
-
-    // bail if StopProducing was called
-    if (finished_.is_finished()) return;
 
     DCHECK_EQ(input, inputs_[0]);
 
     if (input_counter_.SetTotal(total_batches)) {
-      ErrorIfNotOk(OutputResult());
+      return OutputResult();
     }
+    return Status::OK();
   }
 
   Status StartProducing() override {
@@ -570,7 +549,7 @@ class GroupByNode : public ExecNode {
     EVENT(span_, "StopProducing");
     DCHECK_EQ(output, outputs_[0]);
 
-    if (input_counter_.Cancel()) finished_.MarkFinished();
+    input_counter_.Cancel();
     inputs_[0]->StopProducing(this);
   }
 

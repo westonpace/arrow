@@ -135,9 +135,6 @@ struct ExecPlanImpl : public ExecPlan {
           for (auto& n : nodes_) {
             RETURN_NOT_OK(n->Init());
           }
-          for (auto& n : nodes_) {
-            async_scheduler->AddSimpleTask([&] { return n->finished(); });
-          }
 
           ctx->scheduler()->RegisterEnd();
           int num_threads = 1;
@@ -172,11 +169,6 @@ struct ExecPlanImpl : public ExecPlan {
               bool expected = false;
               if (stopped_.compare_exchange_strong(expected, true)) {
                 StopProducingImpl(it.base(), sorted_nodes_.end());
-                for (NodeVector::iterator fw_it = sorted_nodes_.begin();
-                     fw_it != it.base(); ++fw_it) {
-                  Future<> fut = (*fw_it)->finished();
-                  if (!fut.is_finished()) fut.MarkFinished();
-                }
               }
               return st;
             }

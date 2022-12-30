@@ -42,6 +42,15 @@
 namespace arrow {
 namespace compute {
 
+/// Helper base for nodes that apply a simple transform to each batch that passes through
+///
+/// Backpressure / stop signals are forwarded to the input
+/// Errors are forwarded to the output
+/// Guarantees from the input are kept on the output
+///
+/// An input counter is used to allow for a "Finish" method to
+/// run after all inputs have been received.  The Finish method is not run
+/// on error.  The default Finish implementation does nothing.
 class ARROW_EXPORT MapNode : public ExecNode {
  public:
   MapNode(ExecPlan* plan, std::vector<ExecNode*> inputs,
@@ -62,9 +71,8 @@ class ARROW_EXPORT MapNode : public ExecNode {
   void StopProducing() override;
 
  protected:
-  void SubmitTask(std::function<Result<ExecBatch>(ExecBatch)> map_fn, ExecBatch batch);
-
-  virtual void Finish(Status finish_st = Status::OK());
+  void MapBatch(std::function<Result<ExecBatch>(ExecBatch)> map_fn, ExecBatch batch);
+  virtual void Finish();
 
  protected:
   // Counter for the number of batches received

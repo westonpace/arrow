@@ -528,13 +528,7 @@ class TeeNode : public compute::MapNode {
 
   const char* kind_name() const override { return "TeeNode"; }
 
-  void Finish(Status finish_st) override {
-    if (!finish_st.ok()) {
-      MapNode::Finish(std::move(finish_st));
-      return;
-    }
-    dataset_writer_->Finish();
-  }
+  void Finish() override { dataset_writer_->Finish(); }
 
   Result<compute::ExecBatch> DoTee(const compute::ExecBatch& batch) {
     ARROW_ASSIGN_OR_RAISE(std::shared_ptr<RecordBatch> record_batch,
@@ -569,7 +563,7 @@ class TeeNode : public compute::MapNode {
       END_SPAN(span);
       return result;
     };
-    this->SubmitTask(std::move(func), std::move(batch));
+    this->MapBatch(std::move(func), std::move(batch));
   }
 
   void Pause() { inputs_[0]->PauseProducing(this, ++backpressure_counter_); }

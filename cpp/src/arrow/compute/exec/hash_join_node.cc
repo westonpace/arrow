@@ -692,9 +692,7 @@ class HashJoinNode : public ExecNode {
         filter_(std::move(filter)),
         schema_mgr_(std::move(schema_mgr)),
         impl_(std::move(impl)),
-        disable_bloom_filter_(join_options.disable_bloom_filter) {
-    complete_.store(false);
-  }
+        disable_bloom_filter_(join_options.disable_bloom_filter) {}
 
   static Result<ExecNode*> Make(ExecPlan* plan, std::vector<ExecNode*> inputs,
                                 const ExecNodeOptions& options) {
@@ -874,9 +872,6 @@ class HashJoinNode : public ExecNode {
 
   void InputReceived(ExecNode* input, ExecBatch batch) override {
     ARROW_DCHECK(std::find(inputs_.begin(), inputs_.end(), input) != inputs_.end());
-    if (complete_.load()) {
-      return;
-    }
 
     size_t thread_index = plan_->query_context()->GetThreadIndex();
     int side = (input == inputs_[0]) ? 0 : 1;
@@ -991,7 +986,6 @@ class HashJoinNode : public ExecNode {
                        {{"node.label", label()},
                         {"node.detail", ToString()},
                         {"node.kind", kind_name()}});
-    END_SPAN_ON_FUTURE_COMPLETION(span_, finished_);
     RETURN_NOT_OK(
         pushdown_context_.StartProducing(plan_->query_context()->GetThreadIndex()));
     return Status::OK();
@@ -1014,10 +1008,7 @@ class HashJoinNode : public ExecNode {
 
   void StopProducing() override {
     EVENT(span_, "StopProducing");
-    bool expected = false;
-    if (complete_.compare_exchange_strong(expected, true)) {
-      impl_->Abort([this]() { finished_.MarkFinished(); });
-    }
+    impl_->Abort([]() {});
   }
 
  protected:
@@ -1031,16 +1022,11 @@ class HashJoinNode : public ExecNode {
   }
 
   void FinishedCallback(int64_t total_num_batches) {
-    bool expected = false;
-    if (complete_.compare_exchange_strong(expected, true)) {
-      outputs_[0]->InputFinished(this, static_cast<int>(total_num_batches));
-      finished_.MarkFinished();
-    }
+    outputs_[0]->InputFinished(this, static_cast<int>(total_num_batches));
   }
 
  private:
   AtomicCounter batch_count_[2];
-  std::atomic<bool> complete_;
   JoinType join_type_;
   std::vector<JoinKeyCmp> key_cmp_;
   Expression filter_;

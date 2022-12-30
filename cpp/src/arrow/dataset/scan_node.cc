@@ -319,7 +319,6 @@ class ScanNode : public cp::ExecNode {
             plan_->query_context()->async_scheduler(), options_.fragment_readahead + 1,
             /*queue=*/nullptr, [this]() {
               outputs_[0]->InputFinished(this, num_batches_.load());
-              finished_.MarkFinished();
               return Status::OK();
             });
     fragment_tasks->AddAsyncGenerator<std::shared_ptr<Fragment>>(
@@ -336,7 +335,6 @@ class ScanNode : public cp::ExecNode {
                         {"node.label", label()},
                         {"node.output_schema", output_schema()->ToString()},
                         {"node.detail", ToString()}});
-    END_SPAN_ON_FUTURE_COMPLETION(span_, finished_);
     batches_throttle_ = util::ThrottledAsyncTaskScheduler::Make(
         plan_->query_context()->async_scheduler(), options_.target_bytes_readahead + 1);
     plan_->query_context()->async_scheduler()->AddSimpleTask([this] {

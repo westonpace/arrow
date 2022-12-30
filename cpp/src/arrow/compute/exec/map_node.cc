@@ -71,52 +71,31 @@ void MapNode::ResumeProducing(ExecNode* output, int32_t counter) {
 
 void MapNode::StopProducing(ExecNode* output) {
   DCHECK_EQ(output, outputs_[0]);
-  StopProducing();
-}
-
-void MapNode::StopProducing() {
-  EVENT(span_, "StopProducing");
-  if (input_counter_.Cancel()) {
-    this->Finish();
-  }
+  input_counter_.Cancel();
   inputs_[0]->StopProducing(this);
 }
 
-void MapNode::SubmitTask(std::function<Result<ExecBatch>(ExecBatch)> map_fn,
-                         ExecBatch batch) {
-  Status status;
-  // This will be true if the node is stopped early due to an error or manual
-  // cancellation
-  if (input_counter_.Completed()) {
-    return;
-  }
-  auto task = [this, map_fn, batch]() {
-    auto guarantee = batch.guarantee;
-    auto output_batch = map_fn(std::move(batch));
-    if (ErrorIfNotOk(output_batch.status())) {
-      return output_batch.status();
-    }
-    output_batch->guarantee = guarantee;
-    outputs_[0]->InputReceived(this, output_batch.MoveValueUnsafe());
-    return Status::OK();
-  };
+void MapNode::StopProducing() {
+  input_counter_.Cancel();
+  EVENT(span_, "StopProducing");
+}
 
-  status = task();
-  if (!status.ok()) {
-    if (input_counter_.Cancel()) {
-      this->Finish(status);
-    }
-    inputs_[0]->StopProducing(this);
+void MapNode::MapBatch(std::function<Result<ExecBatch>(ExecBatch)> map_fn,
+                       ExecBatch batch) {
+  auto guarantee = batch.guarantee;
+  auto output_batch = map_fn(std::move(batch));
+  if (ErrorIfNotOk(output_batch.status())) {
+    input_counter_.Cancel();
     return;
   }
+  output_batch->guarantee = guarantee;
+  outputs_[0]->InputReceived(this, output_batch.MoveValueUnsafe());
   if (input_counter_.Increment()) {
     this->Finish();
   }
 }
 
-void MapNode::Finish(Status finish_st /*= Status::OK()*/) {
-  this->finished_.MarkFinished(finish_st);
-}
+void MapNode::Finish() {}
 
 }  // namespace compute
 }  // namespace arrow

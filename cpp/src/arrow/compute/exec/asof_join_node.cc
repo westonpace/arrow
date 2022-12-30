@@ -819,10 +819,8 @@ class AsofJoinNode : public ExecNode {
     // marking this finished.  Otherwise there is a chance that doing so could
     // mark the plan finished which may destroy the plan which will destroy this
     // node which will cause us to join on ourselves.
-    ErrorIfNotOk(plan_->query_context()->executor()->Spawn([this] {
-      Defer cleanup([this]() { finished_.MarkFinished(); });
-      outputs_[0]->InputFinished(this, batches_produced_);
-    }));
+    ErrorIfNotOk(plan_->query_context()->executor()->Spawn(
+        [this] { outputs_[0]->InputFinished(this, batches_produced_); }));
   }
 
   bool CheckEnded() {
@@ -1164,7 +1162,6 @@ class AsofJoinNode : public ExecNode {
     process_.Clear();
     process_.Push(false);
   }
-  arrow::Future<> finished() override { return finished_; }
 
  private:
   std::vector<col_index_t> indices_of_on_key_;

@@ -96,8 +96,6 @@ class ExampleNode : public cp::ExecNode {
   void InputReceived(ExecNode* input, cp::ExecBatch batch) override {}
   void ErrorReceived(ExecNode* input, arrow::Status error) override {}
   void InputFinished(ExecNode* input, int total_batches) override {}
-
-  arrow::Future<> finished() override { return inputs_[0]->finished(); }
 };
 
 arrow::Result<cp::ExecNode*> ExampleExecNodeFactory(cp::ExecPlan* plan,

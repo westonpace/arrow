@@ -512,10 +512,7 @@ class TpchTableGenerator {
                                 FinishedCallback finished_callback,
                                 ScheduleCallback schedule_callback) = 0;
 
-  bool Abort() {
-    bool expected = false;
-    return done_.compare_exchange_strong(expected, true);
-  }
+  void Abort() { done_.store(true); }
 
   virtual std::shared_ptr<Schema> schema() const = 0;
 
@@ -3381,7 +3378,6 @@ class TpchNode : public ExecNode {
   [[noreturn]] void InputFinished(ExecNode*, int) override { NoInputs(); }
 
   Status StartProducing() override {
-    num_running_++;
     RETURN_NOT_OK(generator_->StartProducing(
         plan_->query_context()->max_concurrency(),
         [this](ExecBatch batch) { this->OutputBatchCallback(std::move(batch)); },
@@ -3389,9 +3385,6 @@ class TpchNode : public ExecNode {
         [this](std::function<Status(size_t)> func) -> Status {
           return this->ScheduleTaskCallback(std::move(func));
         }));
-    if (--num_running_ == 0) {
-      finished_.MarkFinished(Status::OK());
-    }
     return Status::OK();
   }
 
@@ -3407,11 +3400,7 @@ class TpchNode : public ExecNode {
     StopProducing();
   }
 
-  void StopProducing() override {
-    if (generator_->Abort()) finished_.MarkFinished();
-  }
-
-  Future<> finished() override { return finished_; }
+  void StopProducing() override { generator_->Abort(); }
 
  private:
   void OutputBatchCallback(ExecBatch batch) {
@@ -3425,15 +3414,10 @@ class TpchNode : public ExecNode {
 
   Status ScheduleTaskCallback(std::function<Status(size_t)> func) {
     if (finished_generating_.load()) return Status::OK();
-    num_running_++;
     return plan_->query_context()->ScheduleTask([this, func](size_t thread_index) {
       Status status = func(thread_index);
       if (!status.ok()) {
-        StopProducing();
         ErrorIfNotOk(status);
-      }
-      if (--num_running_ == 0) {
-        finished_.MarkFinished(Status::OK());
       }
       return status;
     });
@@ -3442,7 +3426,6 @@ class TpchNode : public ExecNode {
   const char* name_;
   std::unique_ptr<TpchTableGenerator> generator_;
   std::atomic<bool> finished_generating_{false};
-  std::atomic<int> num_running_{0};
 };
 
 class TpchGenImpl : public TpchGen {
