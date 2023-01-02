@@ -76,22 +76,21 @@ ExecContext* kDefaultCtx = default_exec_context();
 
 using GroupByFunction = std::function<Result<Datum>(
     const std::vector<Datum>&, const std::vector<Datum>&, const std::vector<Datum>&,
-    const std::vector<Aggregate>&, bool, ExecContext*)>;
+    const std::vector<Aggregate>&, bool)>;
 
 Result<Datum> GroupByDirectImpl(const std::vector<Datum>& arguments,
                                 const std::vector<Datum>& keys,
                                 const std::vector<Datum>& segment_keys,
                                 const std::vector<Aggregate>& aggregates,
-                                bool use_threads = kDefaultUseThreads,
-                                ExecContext* ctx = kDefaultCtx) {
-  return internal::GroupBy(arguments, keys, segment_keys, aggregates, use_threads, ctx);
+                                bool use_threads = kDefaultUseThreads) {
+  return internal::GroupBy(arguments, keys, segment_keys, aggregates, use_threads);
 }
 
 Result<Datum> GroupByWithArrays(const std::vector<Datum>& arguments,
                                 const std::vector<Datum>& keys,
                                 const std::vector<Datum>& segment_keys,
                                 const std::vector<Aggregate>& aggregates,
-                                bool use_threads, ExecContext* ctx) {
+                                bool use_threads) {
   ArrayVector arrays;
   ARROW_RETURN_NOT_OK(internal::GroupBy(
       arguments, keys, segment_keys, aggregates,
@@ -99,7 +98,7 @@ Result<Datum> GroupByWithArrays(const std::vector<Datum>& arguments,
         arrays.push_back(datum.make_array());
         return Status::OK();
       },
-      use_threads, ctx));
+      use_threads));
   if (arrays.size() == 1) {
     return arrays[0];
   } else {
@@ -330,21 +329,13 @@ void ValidateGroupBy(GroupByFunction group_by, const std::vector<Aggregate>& agg
                      std::vector<Datum> arguments, std::vector<Datum> keys) {
   ASSERT_OK_AND_ASSIGN(Datum expected, NaiveGroupBy(arguments, keys, aggregates));
 
-  ASSERT_OK_AND_ASSIGN(Datum actual, group_by(arguments, keys, {}, aggregates,
-                                              kDefaultUseThreads, kDefaultCtx));
+  ASSERT_OK_AND_ASSIGN(Datum actual,
+                       group_by(arguments, keys, {}, aggregates, kDefaultUseThreads));
 
   ASSERT_OK(expected.make_array()->ValidateFull());
   ValidateOutput(actual);
 
   AssertDatumsEqual(expected, actual, /*verbose=*/true);
-}
-
-ExecContext* small_chunksize_context(bool use_threads = false) {
-  static ExecContext ctx,
-      ctx_with_threads{default_memory_pool(), arrow::internal::GetCpuThreadPool()};
-  ctx.set_exec_chunksize(2);
-  ctx_with_threads.set_exec_chunksize(2);
-  return use_threads ? &ctx_with_threads : &ctx;
 }
 
 struct TestAggregate {
@@ -368,8 +359,7 @@ Result<Datum> GroupByTest(GroupByFunction group_by, const std::vector<Datum>& ar
     return GroupByUsingExecPlan(arguments, keys, segment_keys, internal_aggregates,
                                 use_threads);
   } else {
-    return group_by(arguments, keys, segment_keys, internal_aggregates, use_threads,
-                    default_exec_context());
+    return group_by(arguments, keys, segment_keys, internal_aggregates, use_threads);
   }
 }
 
@@ -1014,9 +1004,8 @@ class GroupBy : public ::testing::TestWithParam<GroupByFunction> {
                                   const std::vector<Datum>& keys,
                                   const std::vector<Datum>& segment_keys,
                                   const std::vector<Aggregate>& aggregates,
-                                  bool use_threads = false,
-                                  ExecContext* ctx = default_exec_context()) {
-    return GetParam()(arguments, keys, segment_keys, aggregates, use_threads, ctx);
+                                  bool use_threads = false) {
+    return GetParam()(arguments, keys, segment_keys, aggregates, use_threads);
   }
 
   void TestSegmentKey(const std::shared_ptr<Table>& table, Datum output,
@@ -3950,8 +3939,7 @@ TEST_P(GroupBy, SmallChunkSizeSumOnly) {
                                          {batch->GetColumnByName("key")}, {},
                                          {
                                              {"hash_sum", nullptr, "agg_0", "hash_sum"},
-                                         },
-                                         small_chunksize_context()));
+                                         }));
   AssertDatumsEqual(ArrayFromJSON(struct_({
                                       field("hash_sum", float64()),
                                       field("key_0", int64()),
@@ -4498,7 +4486,7 @@ void TestSegmentKey(GroupByFunction group_by, const std::shared_ptr<Table>& tabl
                                {"hash_sum", nullptr, "agg_1", "hash_sum"},
                                {"hash_min_max", nullptr, "agg_2", "hash_min_max"},
                            },
-                           kDefaultUseThreads, kDefaultCtx));
+                           kDefaultUseThreads));
 
   AssertDatumsEqual(output, aggregated_and_grouped, /*verbose=*/true);
 }
