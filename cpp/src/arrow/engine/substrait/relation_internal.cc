@@ -33,7 +33,9 @@
 #include "arrow/util/string.h"
 #include "arrow/util/uri.h"
 
+#include <algorithm>
 #include <memory>
+#include <optional>
 
 namespace arrow {
 
@@ -48,8 +50,9 @@ struct EmitInfo {
   std::shared_ptr<Schema> schema;
 };
 
-Result<EmitInfo> GetEmitInfo(const substrait::RelCommon& rel_common,
-                             const std::shared_ptr<Schema>& input_schema) {
+Result<EmitInfo> GetEmitInfo(
+    const substrait::RelCommon& rel_common, const std::shared_ptr<Schema>& input_schema,
+    const std::optional<RelationInfo>& rel_info_opt = std::nullopt) {
   const auto& emit = rel_common.emit();
   int emit_size = emit.output_mapping_size();
   std::vector<compute::Expression> proj_field_refs(emit_size);
@@ -65,15 +68,17 @@ Result<EmitInfo> GetEmitInfo(const substrait::RelCommon& rel_common,
   return std::move(emit_info);
 }
 
-Result<DeclarationInfo> ProcessEmit(std::optional<substrait::RelCommon> rel_common_opt,
-                                    const DeclarationInfo& no_emit_declr,
-                                    const std::shared_ptr<Schema>& schema) {
+Result<DeclarationInfo> ProcessEmitToDeclaration(
+    std::optional<substrait::RelCommon> rel_common_opt,
+    const DeclarationInfo& no_emit_declr, const std::shared_ptr<Schema>& schema,
+    const std::optional<RelationInfo>& rel_info_opt = std::nullopt) {
   if (rel_common_opt) {
     switch (rel_common_opt->emit_kind_case()) {
       case substrait::RelCommon::EmitKindCase::kDirect:
         return no_emit_declr;
       case substrait::RelCommon::EmitKindCase::kEmit: {
-        ARROW_ASSIGN_OR_RAISE(auto emit_info, GetEmitInfo(*rel_common_opt, schema));
+        ARROW_ASSIGN_OR_RAISE(auto emit_info,
+                              GetEmitInfo(*rel_common_opt, schema, rel_info_opt));
         return DeclarationInfo{
             compute::Declaration::Sequence(
                 {no_emit_declr.declaration,
@@ -90,14 +95,16 @@ Result<DeclarationInfo> ProcessEmit(std::optional<substrait::RelCommon> rel_comm
 }
 
 template <typename RelMessage>
-Result<DeclarationInfo> ProcessEmit(const RelMessage& rel,
-                                    const DeclarationInfo& no_emit_declr,
-                                    const std::shared_ptr<Schema>& schema) {
-  return ProcessEmit(rel.has_common() ? std::optional(rel.common()) : std::nullopt,
-                     no_emit_declr, schema);
+Result<DeclarationInfo> ProcessEmitToDeclaration(
+    const RelMessage& rel, const DeclarationInfo& no_emit_declr,
+    const std::shared_ptr<Schema>& schema,
+    const std::optional<RelationInfo>& rel_info_opt = std::nullopt) {
+  return ProcessEmitToDeclaration(
+      rel.has_common() ? std::optional(rel.common()) : std::nullopt, no_emit_declr,
+      schema, rel_info_opt);
 }
 
-Result<DeclarationInfo> ProcessExtensionEmit(
+Result<DeclarationInfo> ProcessExtensionEmitToDeclaration(
     const DeclarationInfo& no_emit_declr, const std::vector<int>& emit_order,
     const std::vector<int>& field_output_indices) {
   const std::shared_ptr<Schema>& input_schema = no_emit_declr.output_schema;
@@ -146,7 +153,7 @@ Result<RelationInfo> GetExtensionRelationInfo(const substrait::Rel& rel,
     case substrait::Rel::RelTypeCase::kExtensionSingle: {
       const auto& ext = rel.extension_single();
       ARROW_ASSIGN_OR_RAISE(DeclarationInfo input,
-                            FromProto(ext.input(), ext_set, conv_opts));
+                            engine::FromProto(ext.input(), ext_set, conv_opts));
       inputs.push_back(std::move(input));
       return conv_opts.extension_provider->MakeRel(inputs, ext.detail(), ext_set);
     }
@@ -154,7 +161,8 @@ Result<RelationInfo> GetExtensionRelationInfo(const substrait::Rel& rel,
     case substrait::Rel::RelTypeCase::kExtensionMulti: {
       const auto& ext = rel.extension_multi();
       for (const auto& input : ext.inputs()) {
-        ARROW_ASSIGN_OR_RAISE(auto input_info, FromProto(input, ext_set, conv_opts));
+        ARROW_ASSIGN_OR_RAISE(auto input_info,
+                              engine::FromProto(input, ext_set, conv_opts));
         inputs.push_back(std::move(input_info));
       }
       return conv_opts.extension_provider->MakeRel(inputs, ext.detail(), ext_set);
@@ -225,8 +233,92 @@ Status DiscoverFilesFromDir(const std::shared_ptr<fs::LocalFileSystem>& local_fs
   return Status::OK();
 }
 
-Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet& ext_set,
-                                  const ConversionOptions& conversion_options) {
+namespace impl {
+
+Result<RelationInfo> ProcessEmit(
+    std::optional<substrait::RelCommon> rel_common_opt,
+    const DeclarationInfo& no_emit_declr, const std::shared_ptr<Schema>& schema,
+    const std::optional<RelationInfo>& rel_info_opt = std::nullopt) {
+  ARROW_ASSIGN_OR_RAISE(
+      auto decl_info,
+      ProcessEmitToDeclaration(rel_common_opt, no_emit_declr, schema, rel_info_opt));
+  return RelationInfo{decl_info, decl_info.output_schema->num_fields(), std::nullopt};
+}
+
+template <typename RelMessage>
+Result<RelationInfo> ProcessEmit(
+    const RelMessage& rel, const DeclarationInfo& no_emit_declr,
+    const std::shared_ptr<Schema>& schema,
+    const std::optional<RelationInfo>& rel_info_opt = std::nullopt) {
+  ARROW_ASSIGN_OR_RAISE(
+      auto decl_info, ProcessEmitToDeclaration(rel, no_emit_declr, schema, rel_info_opt));
+  return RelationInfo{decl_info, decl_info.output_schema->num_fields(), std::nullopt};
+}
+
+Result<RelationInfo> ProcessExtensionEmit(const DeclarationInfo& no_emit_declr,
+                                          const std::vector<int>& emit_order,
+                                          const std::vector<int>& field_output_indices) {
+  ARROW_ASSIGN_OR_RAISE(
+      auto decl_info,
+      ProcessExtensionEmitToDeclaration(no_emit_declr, emit_order, field_output_indices));
+  return RelationInfo{decl_info, static_cast<int>(field_output_indices.size()),
+                      field_output_indices};
+}
+
+// Get the field input indices for a given relation.
+// These are the indices that translate to the field output indices of the relation, i.e.,
+// `field_output_indices[field_input_indices[i]] = i`, or -1 by default. If field output
+// indices are undefined, they default to `[0, N)` where `N` is the total input fields of
+// the relation.
+std::vector<int> GetFieldInputIndices(const RelationInfo& rel_info) {
+  std::vector<int> field_input_indices;
+  if (!rel_info.field_output_indices) {
+    field_input_indices.reserve(rel_info.total_input_fields);
+    for (int i = 0; i < rel_info.total_input_fields; i++) {
+      field_input_indices.push_back(i);
+    }
+  } else {
+    // the default emit order is the one translating to `indices`
+    const auto& indices = *rel_info.field_output_indices;
+    auto max_it = std::max_element(indices.begin(), indices.end());
+    size_t emit_size = (max_it == indices.end()) ? 0 : 1 + *max_it;
+    // point `field_input_indices[i]` to the first occurrence of `i` in `indices`
+    field_input_indices.insert(field_input_indices.begin(), emit_size, -1);
+    for (size_t i = indices.size(); i > 0; i--) {
+      if (indices[i - 1] >= 0) {
+        field_input_indices[indices[i - 1]] = i - 1;
+      }
+    }
+  }
+  return field_input_indices;
+}
+
+// Apply the output mapping, defined by field input indices, to a field path.
+// In particular, the mapping is applied to the first index of the field path.
+Result<FieldPath> ApplyOutputMapping(const FieldPath& field_path,
+                                     const std::vector<int>& field_input_indices) {
+  auto indices = field_path.indices();
+  std::vector<int> mapped_indices(indices.size());
+  for (size_t i = 0; i < indices.size(); i++) {
+    if (i == 0) {
+      if (indices[i] < 0 ||
+          static_cast<size_t>(indices[i]) >= field_input_indices.size()) {
+        return Status::Invalid("field path index ", i, " out of bounds: ", indices[i]);
+      }
+      mapped_indices[i] = field_input_indices[indices[i]];
+      if (mapped_indices[i] < 0) {
+        return Status::Invalid("mapped field path index ", i,
+                               " out of bounds: ", mapped_indices[i]);
+      }
+    } else {
+      mapped_indices[i] = indices[i];
+    }
+  }
+  return FieldPath(mapped_indices);
+}
+
+Result<RelationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet& ext_set,
+                               const ConversionOptions& conversion_options) {
   static bool dataset_init = false;
   if (!dataset_init) {
     dataset_init = true;
@@ -435,8 +527,8 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       if (!filter.has_input()) {
         return Status::Invalid("substrait::FilterRel with no input relation");
       }
-      ARROW_ASSIGN_OR_RAISE(auto input,
-                            FromProto(filter.input(), ext_set, conversion_options));
+      ARROW_ASSIGN_OR_RAISE(
+          auto input, engine::FromProto(filter.input(), ext_set, conversion_options));
 
       if (!filter.has_condition()) {
         return Status::Invalid("substrait::FilterRel with no condition expression");
@@ -460,8 +552,10 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       if (!project.has_input()) {
         return Status::Invalid("substrait::ProjectRel with no input relation");
       }
-      ARROW_ASSIGN_OR_RAISE(auto input,
-                            FromProto(project.input(), ext_set, conversion_options));
+      ARROW_ASSIGN_OR_RAISE(auto input_rel_info, impl::FromProto(project.input(), ext_set,
+                                                                 conversion_options));
+      const auto& input = input_rel_info.decl_info;
+      auto field_input_indices = GetFieldInputIndices(input_rel_info);
 
       // NOTE: Substrait ProjectRels *append* columns, while Acero's project node replaces
       // them. Therefore, we need to prefix all the current columns for compatibility.
@@ -485,6 +579,9 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
         } else if (auto* field_ref = des_expr.field_ref()) {
           ARROW_ASSIGN_OR_RAISE(FieldPath field_path,
                                 field_ref->FindOne(*input.output_schema));
+          ARROW_ASSIGN_OR_RAISE(field_path,
+                                ApplyOutputMapping(field_path, field_input_indices));
+          des_expr = compute::Expression(compute::field_ref(field_path));
           ARROW_ASSIGN_OR_RAISE(project_field, field_path.Get(*input.output_schema));
         } else if (auto* literal = des_expr.literal()) {
           project_field =
@@ -505,7 +602,7 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
           project_schema};
 
       return ProcessEmit(std::move(project), std::move(project_declaration),
-                         std::move(project_schema));
+                         std::move(project_schema), std::optional(input_rel_info));
     }
 
     case substrait::Rel::RelTypeCase::kJoin: {
@@ -547,9 +644,9 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
       }
 
       ARROW_ASSIGN_OR_RAISE(auto left,
-                            FromProto(join.left(), ext_set, conversion_options));
+                            engine::FromProto(join.left(), ext_set, conversion_options));
       ARROW_ASSIGN_OR_RAISE(auto right,
-                            FromProto(join.right(), ext_set, conversion_options));
+                            engine::FromProto(join.right(), ext_set, conversion_options));
 
       if (!join.has_expression()) {
         return Status::Invalid("substrait::JoinRel with no expression");
@@ -612,8 +709,8 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
         return Status::Invalid("substrait::AggregateRel with no input relation");
       }
 
-      ARROW_ASSIGN_OR_RAISE(auto input,
-                            FromProto(aggregate.input(), ext_set, conversion_options));
+      ARROW_ASSIGN_OR_RAISE(
+          auto input, engine::FromProto(aggregate.input(), ext_set, conversion_options));
 
       if (aggregate.groupings_size() > 1) {
         return Status::NotImplemented(
@@ -759,6 +856,14 @@ Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet&
   return Status::NotImplemented(
       "conversion to arrow::compute::Declaration from Substrait relation ",
       rel.DebugString());
+}
+
+}  // namespace impl
+
+Result<DeclarationInfo> FromProto(const substrait::Rel& rel, const ExtensionSet& ext_set,
+                                  const ConversionOptions& conversion_options) {
+  ARROW_ASSIGN_OR_RAISE(auto rel_info, impl::FromProto(rel, ext_set, conversion_options));
+  return rel_info.decl_info;
 }
 
 namespace {

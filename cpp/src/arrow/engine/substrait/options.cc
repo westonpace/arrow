@@ -103,6 +103,7 @@ class DefaultExtensionProvider : public ExtensionProvider {
     return RelationInfo{
         {compute::Declaration("asofjoin", input_decls, std::move(asofjoin_node_opts)),
          std::move(schema)},
+        static_cast<int>(field_output_indices.size()),
         std::move(field_output_indices)};
   }
 };

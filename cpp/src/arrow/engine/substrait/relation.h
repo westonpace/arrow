@@ -38,12 +38,16 @@ struct ARROW_ENGINE_EXPORT DeclarationInfo {
 struct ARROW_ENGINE_EXPORT RelationInfo {
   /// The execution information produced thus far.
   DeclarationInfo decl_info;
+  /// The total number of input fields across all inputs of the relation.
+  int total_input_fields;
   /// A vector of indices, one per input field per input in order, each index referring
   /// to the corresponding field within the output schema, if it is in the output, or -1
   /// otherwise. Each location in this vector is a field input index. This vector is
   /// useful for translating selected field input indices (often from an output mapping in
   /// a Substrait plan) of a join-type relation to their locations in the output schema of
-  /// the relation. This vector is undefined if the translation is unsupported.
+  /// the relation. This vector is undefined if the translation is unsupported, i.e., when
+  /// there is an output field that does not have an input field corresponding to it. When
+  /// defined, the size of this vector is equal to `total_input_fields`.
   std::optional<std::vector<int>> field_output_indices;
 };
 

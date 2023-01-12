@@ -3778,7 +3778,7 @@ TEST(Substrait, PlanWithExtension) {
                       }
                     }
                   ]
-		},
+                },
                 {
                   "on": {
                     "selection": {
@@ -3802,8 +3802,8 @@ TEST(Substrait, PlanWithExtension) {
                       }
                     }
                   ]
-		}
-	      ],
+                }
+              ],
               "tolerance": 1000
             }
           }
@@ -3961,7 +3961,7 @@ TEST(Substrait, AsOfJoinDefaultEmit) {
                       }
                     }
                   ]
-		},
+                },
                 {
                   "on": {
                     "selection": {
@@ -3985,8 +3985,8 @@ TEST(Substrait, AsOfJoinDefaultEmit) {
                       }
                     }
                   ]
-		}
-	      ],
+                }
+              ],
               "tolerance": 1000
             }
           }
@@ -4029,6 +4029,237 @@ TEST(Substrait, AsOfJoinDefaultEmit) {
   auto expected_table = TableFromJSON(
       out_schema,
       {"[[2, 1, 1.1, 2, 1, 1.2], [4, 1, 2.1, 4, 1, 1.2], [6, 2, 3.1, 6, 2, 3.2]]"});
+  CheckRoundTripResult(std::move(out_schema), std::move(expected_table),
+                       *compute::default_exec_context(), buf, {}, conversion_options);
+}
+
+TEST(Substrait, AsOfJoinWithOutputMapping) {
+  std::string substrait_json = R"({
+    "extensionUris": [],
+    "extensions": [],
+    "relations": [{
+      "root": {
+        "input": {
+          "project": {
+            "common": {
+              "emit": {
+                "output_mapping" : [6, 7, 8, 9]
+              }
+            },
+            "input": {
+              "extension_multi": {
+                "inputs": [
+                  {
+                    "read": {
+                      "common": {
+                        "direct": {
+                        }
+                      },
+                      "baseSchema": {
+                        "names": ["time", "key", "value1"],
+                        "struct": {
+                          "types": [
+                            {
+                              "i32": {
+                                "typeVariationReference": 0,
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            },
+                            {
+                              "i32": {
+                                "typeVariationReference": 0,
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            },
+                            {
+                              "fp64": {
+                                "typeVariationReference": 0,
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            }
+                          ],
+                          "typeVariationReference": 0,
+                          "nullability": "NULLABILITY_REQUIRED"
+                        }
+                      },
+                      "namedTable": {
+                        "names": ["T1"]
+                      }
+                    }
+                  },
+                  {
+                    "read": {
+                      "common": {
+                        "direct": {
+                        }
+                      },
+                      "baseSchema": {
+                        "names": ["time", "key", "value2"],
+                        "struct": {
+                          "types": [
+                            {
+                              "i32": {
+                                "typeVariationReference": 0,
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            },
+                            {
+                              "i32": {
+                                "typeVariationReference": 0,
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            },
+                            {
+                              "fp64": {
+                                "typeVariationReference": 0,
+                                "nullability": "NULLABILITY_NULLABLE"
+                              }
+                            }
+                          ],
+                          "typeVariationReference": 0,
+                          "nullability": "NULLABILITY_REQUIRED"
+                        }
+                      },
+                      "namedTable": {
+                        "names": ["T2"]
+                      }
+                    }
+                  }
+                ],
+                "detail": {
+                  "@type": "/arrow.substrait_ext.AsOfJoinRel",
+                  "keys" : [
+                    {
+                      "on": {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 0,
+                            }
+                          },
+                          "rootReference": {}
+                        }
+                      },
+                      "by": [
+                        {
+                          "selection": {
+                            "directReference": {
+                              "structField": {
+                                "field": 1,
+                              }
+                            },
+                            "rootReference": {}
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "on": {
+                        "selection": {
+                          "directReference": {
+                            "structField": {
+                              "field": 0,
+                            }
+                          },
+                          "rootReference": {}
+                        }
+                      },
+                      "by": [
+                        {
+                          "selection": {
+                            "directReference": {
+                              "structField": {
+                                "field": 1,
+                              }
+                            },
+                            "rootReference": {}
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "tolerance": 1000
+                }
+              }
+            },
+            "expressions": {
+              "selection": {
+                "directReference": {
+                  "structField": {
+                    "field": 0,
+                  }
+                },
+                "rootReference": {}
+              }
+            },
+            "expressions": {
+              "selection": {
+                "directReference": {
+                  "structField": {
+                    "field": 1,
+                  }
+                },
+                "rootReference": {}
+              },
+            },
+            "expressions": {
+              "selection": {
+                "directReference": {
+                  "structField": {
+                    "field": 2,
+                  }
+                },
+                "rootReference": {}
+              },
+            },
+            "expressions": {
+              "selection": {
+                "directReference": {
+                  "structField": {
+                    "field": 3,
+                  }
+                },
+                "rootReference": {}
+              }
+            }
+          }
+        },
+        "names": ["time", "key", "value1", "time2", "key2", "value2"]
+      }
+    }],
+    "expectedTypeUrls": []
+  })";
+
+  std::vector<std::shared_ptr<Schema>> input_schema = {
+      schema({field("time", int32()), field("key", int32()), field("value1", float64())}),
+      schema(
+          {field("time", int32()), field("key", int32()), field("value2", float64())})};
+  NamedTableProvider table_provider = ProvideMadeTable(
+      [&input_schema](
+          const std::vector<std::string>& names) -> Result<std::shared_ptr<Table>> {
+        if (names.size() != 1) {
+          return Status::Invalid("Multiple test table names");
+        }
+        if (names[0] == "T1") {
+          return TableFromJSON(input_schema[0],
+                               {"[[2, 1, 1.1], [4, 1, 2.1], [6, 2, 3.1]]"});
+        }
+        if (names[0] == "T2") {
+          return TableFromJSON(input_schema[1],
+                               {"[[1, 1, 1.2], [3, 2, 2.2], [5, 2, 3.2]]"});
+        }
+        return Status::Invalid("Unknown test table name ", names[0]);
+      });
+  ConversionOptions conversion_options;
+  conversion_options.named_table_provider = std::move(table_provider);
+
+  ASSERT_OK_AND_ASSIGN(auto buf, internal::SubstraitFromJSON("Plan", substrait_json));
+
+  auto out_schema = schema({field("time", int32()), field("key", int32()),
+                            field("value1", float64()), field("value2", float64())});
+
+  auto expected_table = TableFromJSON(
+      out_schema, {"[[2, 1, 1.1, 1.2], [4, 1, 2.1, 1.2], [6, 2, 3.1, 3.2]]"});
   CheckRoundTripResult(std::move(out_schema), std::move(expected_table),
                        *compute::default_exec_context(), buf, {}, conversion_options);
 }
