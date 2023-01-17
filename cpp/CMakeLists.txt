@@ -401,6 +401,12 @@ if(ARROW_USE_UBSAN)
   add_definitions(-DARROW_UBSAN)
 endif()
 
+if(ARROW_WITH_OPENTELEMETRY)
+  set(ARROW_WITH_TRACING ON)
+elseif(ARROW_WITH_DEBUG_TRACING)
+  set(ARROW_WITH_TRACING ON)
+endif()
+
 #
 # Compiler flags
 #

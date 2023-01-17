@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <type_traits>
 
 // Pick up ARROW_WITH_OPENTELEMETRY first
 #include "arrow/util/config.h"
@@ -27,11 +28,16 @@
 #pragma warning(push)
 #pragma warning(disable : 4522)
 #endif
+#include <opentelemetry/context/runtime_context.h>
 #include <opentelemetry/trace/provider.h>
 #include <opentelemetry/trace/scope.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
+#endif
+
+#ifdef ARROW_WITH_DEBUG_TRACING
+#include <chrono>
 #endif
 
 #include "arrow/memory_pool.h"
@@ -215,6 +221,53 @@ opentelemetry::trace::StartSpanOptions SpanOptionsWithParent(
  * ...
  * #endif
  */
+#elif defined(ARROW_WITH_DEBUG_TRACING)
+
+class SpanImpl : public ::arrow::util::tracing::SpanDetails {
+ public:
+  SpanImpl(std::string_view name);
+  ARROW_DISALLOW_COPY_AND_ASSIGN(SpanImpl);
+  SpanImpl(SpanImpl&& other);
+  ~SpanImpl();
+  SpanImpl& operator=(SpanImpl&& other);
+  int64_t id;
+  std::chrono::high_resolution_clock::time_point start;
+  std::string name;
+  bool ended = false;
+};
+struct Scope {
+  std::unique_ptr<util::tracing::SpanDetails> details;
+};
+
+void RecordSpanStart(util::tracing::Span& span, std::string_view name);
+Scope ScopedRecordSpanStart(util::tracing::Span& span, std::string_view name);
+void RecordSpanEnd(SpanImpl& span_impl);
+void RecordSpanEnd(util::tracing::Span& span);
+void RecordSpanEvent(const util::tracing::Span& span, std::string_view event);
+void RecordSpanEvent(std::string_view event);
+void RecordSpanError(const util::tracing::Span& span, const Status& st);
+
+#define START_SPAN(target_span, name, ...) \
+  ::arrow::internal::tracing::RecordSpanStart(target_span, name)
+#define START_SCOPED_SPAN(target_span, name, ...) \
+  ::arrow::internal::tracing::ScopedRecordSpanStart(target_span, name)
+#define START_SCOPED_SPAN_SV(target_span, name, ...) \
+  ::arrow::internal::tracing::ScopedRecordSpanStart(target_span, name)
+#define START_SPAN_WITH_PARENT(target_span, parent_span, name, ...) \
+  ::arrow::internal::tracing::RecordSpanStart(target_span, name)
+#define START_COMPUTE_SPAN(target_span, name, ...) \
+  ::arrow::internal::tracing::RecordSpanStart(target_span, name)
+#define MARK_SPAN(target_span, status) \
+  ::arrow::internal::tracing::RecordSpanError(target_span, status)
+#define EVENT(target_span, name) \
+  ::arrow::internal::tracing::RecordSpanEvent(target_span, name)
+#define EVENT_ON_CURRENT_SPAN(name, ...) ::arrow::internal::tracing::RecordSpanEvent(name)
+#define END_SPAN(target_span) ::arrow::internal::tracing::RecordSpanEnd(target_span)
+#define END_SPAN_ON_FUTURE_COMPLETION(target_span, target_future) \
+  target_future.SetSpan(&target_span)
+#define PROPAGATE_SPAN_TO_GENERATOR(generator)
+#define WRAP_ASYNC_GENERATOR(generator)
+#define WRAP_ASYNC_GENERATOR_WITH_CHILD_SPAN(generator, name)
 
 #else  // !ARROW_WITH_OPENTELEMETRY
 
