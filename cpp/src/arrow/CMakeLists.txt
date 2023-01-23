@@ -213,6 +213,7 @@ set(ARROW_SRCS
     util/future.cc
     util/int_util.cc
     util/io_util.cc
+    util/lifetime.cc
     util/logging.cc
     util/key_value_metadata.cc
     util/memory.cc

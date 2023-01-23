@@ -28,6 +28,7 @@
 
 #include "arrow/util/atfork_internal.h"
 #include "arrow/util/io_util.h"
+#include "arrow/util/lifetime.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/mutex.h"
 
@@ -543,8 +544,10 @@ std::shared_ptr<ThreadPool> ThreadPool::MakeCpuThreadPool() {
 
 ThreadPool* GetCpuThreadPool() {
   // Avoid using a global variable because of initialization order issues (ARROW-18383)
-  static std::shared_ptr<ThreadPool> singleton = ThreadPool::MakeCpuThreadPool();
-  return singleton.get();
+  static util::internal::ArrowSingleton<ThreadPool> singleton(
+      ThreadPool::MakeCpuThreadPool(),
+      util::internal::ShutdownPriority::kThreadingResource);
+  return singleton.Get();
 }
 
 }  // namespace internal

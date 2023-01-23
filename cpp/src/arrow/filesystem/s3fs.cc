@@ -89,6 +89,7 @@
 #include "arrow/util/future.h"
 #include "arrow/util/io_util.h"
 #include "arrow/util/key_value_metadata.h"
+#include "arrow/util/lifetime.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/string.h"
 #include "arrow/util/task_group.h"
@@ -2606,6 +2607,8 @@ Status DoInitializeS3(const S3GlobalOptions& options) {
 #endif
   Aws::InitAPI(aws_options);
   aws_initialized.store(true);
+  util::internal::AddShutdownTask(
+      [] { EnsureS3Finalized().Warn("Error encountered shutting down S3"); });
   return Status::OK();
 }
 

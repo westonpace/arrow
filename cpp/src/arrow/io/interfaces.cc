@@ -38,6 +38,7 @@
 #include "arrow/util/future.h"
 #include "arrow/util/io_util.h"
 #include "arrow/util/iterator.h"
+#include "arrow/util/lifetime.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/thread_pool.h"
 
@@ -414,8 +415,9 @@ std::shared_ptr<ThreadPool> MakeIOThreadPool() {
 }  // namespace
 
 ThreadPool* GetIOThreadPool() {
-  static std::shared_ptr<ThreadPool> pool = MakeIOThreadPool();
-  return pool.get();
+  static util::internal::ArrowSingleton<ThreadPool> pool(
+      MakeIOThreadPool(), util::internal::ShutdownPriority::kThreadingResource);
+  return pool.Get();
 }
 
 // -----------------------------------------------------------------------
