@@ -18,6 +18,11 @@
 #include "arrow/compute/exec/accumulation_queue.h"
 
 #include <iterator>
+#include <mutex>
+#include <queue>
+#include <vector>
+
+#include "arrow/util/logging.h"
 
 namespace arrow {
 namespace util {
@@ -54,5 +59,65 @@ void AccumulationQueue::Clear() {
 }
 
 ExecBatch& AccumulationQueue::operator[](size_t i) { return batches_[i]; }
+
+namespace {
+
+struct CompareBatchSeqNum {
+  bool operator()(const ExecBatch& left, const ExecBatch& right) const {
+    return left.index < right.index;
+  }
+};
+
+class SequencingQueueImpl : public SequencingQueue {
+ public:
+  SequencingQueueImpl(ProcessCallback process, ScheduleCallback schedule)
+      : process_(std::move(process)), schedule_(std::move(schedule)) {}
+
+  Status InsertBatch(ExecBatch batch) override {
+    std::unique_lock lk(mutex_);
+    if (batch.index == next_index_) {
+      return DeliverNextUnlocked(std::move(batch), std::move(lk));
+    }
+    queue_.emplace(std::move(batch));
+    return Status::OK();
+  }
+
+ private:
+  Status DeliverNextUnlocked(ExecBatch batch, std::unique_lock<std::mutex>&& lk) {
+    DCHECK_NE(batch.index, ::arrow::compute::kUnsequencedIndex)
+        << "attempt to use a sequencing queue on an unsequenced stream of batches";
+    tasks_.clear();
+    next_index_++;
+    ARROW_ASSIGN_OR_RAISE(Task batch_task, process_(std::move(queue_.top())));
+    tasks_.push_back(std::move(batch_task));
+    while (!queue_.empty() && next_index_ == queue_.top().index) {
+      ARROW_ASSIGN_OR_RAISE(Task task, process_(std::move(queue_.top())));
+      tasks_.push_back(std::move(task));
+      queue_.pop();
+      next_index_++;
+    }
+    lk.unlock();
+    for (auto& task : tasks_) {
+      ARROW_RETURN_NOT_OK(std::move(task)());
+    }
+    return Status::OK();
+  }
+
+  const ProcessCallback process_;
+  const ScheduleCallback schedule_;
+
+  std::priority_queue<ExecBatch, std::vector<ExecBatch>, CompareBatchSeqNum> queue_;
+  int next_index_ = 0;
+  std::mutex mutex_;
+  std::vector<Task> tasks_;
+};
+
+}  // namespace
+
+std::unique_ptr<SequencingQueue> SequencingQueue::Make(ProcessCallback process,
+                                                       ScheduleCallback schedule) {
+  return std::make_unique<SequencingQueueImpl>(std::move(process), std::move(schedule));
+}
+
 }  // namespace util
 }  // namespace arrow
