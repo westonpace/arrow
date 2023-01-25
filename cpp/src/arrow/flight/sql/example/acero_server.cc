@@ -19,6 +19,7 @@
 
 #include <condition_variable>
 #include <deque>
+#include <iostream>
 #include <mutex>
 #include <unordered_map>
 
@@ -35,108 +36,6 @@ namespace sql {
 namespace acero_example {
 
 namespace {
-/// \brief A SinkNodeConsumer that saves the schema as given to it by
-///   the ExecPlan. Used to retrieve the schema of a Substrait plan to
-///   fulfill the Flight SQL API contract.
-class GetSchemaSinkNodeConsumer : public compute::SinkNodeConsumer {
- public:
-  Status Init(const std::shared_ptr<Schema>& schema, compute::BackpressureControl*,
-              compute::ExecPlan* plan) override {
-    schema_ = schema;
-    return Status::OK();
-  }
-  Status Consume(compute::ExecBatch exec_batch) override { return Status::OK(); }
-  Future<> Finish() override { return Status::OK(); }
-
-  const std::shared_ptr<Schema>& schema() const { return schema_; }
-
- private:
-  std::shared_ptr<Schema> schema_;
-};
-
-/// \brief A SinkNodeConsumer that internally saves batches into a
-///   queue, so that it can be read from a RecordBatchReader. In other
-///   words, this bridges a push-based interface (ExecPlan) to a
-///   pull-based interface (RecordBatchReader).
-class QueuingSinkNodeConsumer : public compute::SinkNodeConsumer {
- public:
-  QueuingSinkNodeConsumer() : schema_(nullptr), finished_(false) {}
-
-  Status Init(const std::shared_ptr<Schema>& schema, compute::BackpressureControl*,
-              compute::ExecPlan* plan) override {
-    schema_ = schema;
-    return Status::OK();
-  }
-
-  Status Consume(compute::ExecBatch exec_batch) override {
-    {
-      std::lock_guard<std::mutex> guard(mutex_);
-      batches_.push_back(std::move(exec_batch));
-      batches_added_.notify_all();
-    }
-
-    return Status::OK();
-  }
-
-  Future<> Finish() override {
-    {
-      std::lock_guard<std::mutex> guard(mutex_);
-      finished_ = true;
-      batches_added_.notify_all();
-    }
-
-    return Status::OK();
-  }
-
-  const std::shared_ptr<Schema>& schema() const { return schema_; }
-
-  arrow::Result<std::shared_ptr<RecordBatch>> Next() {
-    compute::ExecBatch batch;
-    {
-      std::unique_lock<std::mutex> guard(mutex_);
-      batches_added_.wait(guard, [this] { return !batches_.empty() || finished_; });
-
-      if (finished_ && batches_.empty()) {
-        return nullptr;
-      }
-      batch = std::move(batches_.front());
-      batches_.pop_front();
-    }
-
-    return batch.ToRecordBatch(schema_);
-  }
-
- private:
-  std::mutex mutex_;
-  std::condition_variable batches_added_;
-  std::deque<compute::ExecBatch> batches_;
-  std::shared_ptr<Schema> schema_;
-  bool finished_;
-};
-
-/// \brief A RecordBatchReader that pulls from the
-///   QueuingSinkNodeConsumer above, blocking until results are
-///   available as necessary.
-class ConsumerBasedRecordBatchReader : public RecordBatchReader {
- public:
-  explicit ConsumerBasedRecordBatchReader(
-      std::shared_ptr<compute::ExecPlan> plan,
-      std::shared_ptr<QueuingSinkNodeConsumer> consumer)
-      : plan_(std::move(plan)), consumer_(std::move(consumer)) {}
-
-  std::shared_ptr<Schema> schema() const override { return consumer_->schema(); }
-
-  Status ReadNext(std::shared_ptr<RecordBatch>* batch) override {
-    return consumer_->Next().Value(batch);
-  }
-
-  // TODO(ARROW-17242): FlightDataStream needs to call Close()
-  Status Close() override { return plan_->finished().status(); }
-
- private:
-  std::shared_ptr<compute::ExecPlan> plan_;
-  std::shared_ptr<QueuingSinkNodeConsumer> consumer_;
-};
 
 /// \brief An implementation of a Flight SQL service backed by Acero.
 class AceroFlightSqlServer : public FlightSqlServerBase {
@@ -193,18 +92,12 @@ class AceroFlightSqlServer : public FlightSqlServerBase {
     // GetFlightInfoSubstraitPlan encodes the plan into the ticket
     std::shared_ptr<Buffer> serialized_plan =
         Buffer::FromString(command.statement_handle);
-    std::shared_ptr<QueuingSinkNodeConsumer> consumer =
-        std::make_shared<QueuingSinkNodeConsumer>();
-    ARROW_ASSIGN_OR_RAISE(std::shared_ptr<compute::ExecPlan> plan,
-                          engine::DeserializePlan(*serialized_plan, consumer));
-
-    ARROW_LOG(INFO) << "DoGetStatement: executing plan " << plan->ToString();
-
-    ARROW_RETURN_NOT_OK(plan->StartProducing());
-
-    auto reader = std::make_shared<ConsumerBasedRecordBatchReader>(std::move(plan),
-                                                                   std::move(consumer));
-    return std::make_unique<RecordBatchStream>(reader);
+    ARROW_ASSIGN_OR_RAISE(engine::PlanInfo plan_info,
+                          engine::DeserializePlan(*serialized_plan));
+    ARROW_ASSIGN_OR_RAISE(
+        std::unique_ptr<RecordBatchReader> reader,
+        compute::DeclarationToReader(std::move(plan_info.root.declaration)));
+    return std::make_unique<RecordBatchStream>(std::move(reader));
   }
 
   arrow::Result<int64_t> DoPutCommandSubstraitPlan(
@@ -263,21 +156,8 @@ class AceroFlightSqlServer : public FlightSqlServerBase {
   arrow::Result<std::shared_ptr<arrow::Schema>> GetPlanSchema(
       const std::string& serialized_plan) {
     std::shared_ptr<Buffer> plan_buf = Buffer::FromString(serialized_plan);
-    std::shared_ptr<GetSchemaSinkNodeConsumer> consumer =
-        std::make_shared<GetSchemaSinkNodeConsumer>();
-    ARROW_ASSIGN_OR_RAISE(std::shared_ptr<compute::ExecPlan> plan,
-                          engine::DeserializePlan(*plan_buf, consumer));
-    std::shared_ptr<Schema> output_schema;
-    for (compute::ExecNode* sink : plan->sinks()) {
-      // Force SinkNodeConsumer::Init to be called
-      ARROW_RETURN_NOT_OK(sink->StartProducing());
-      output_schema = consumer->schema();
-      break;
-    }
-    if (!output_schema) {
-      return Status::Invalid("Could not infer output schema");
-    }
-    return output_schema;
+    ARROW_ASSIGN_OR_RAISE(engine::PlanInfo plan_info, engine::DeserializePlan(*plan_buf));
+    return plan_info.output_schema;
   }
 
   arrow::Result<std::unique_ptr<FlightInfo>> MakeFlightInfo(

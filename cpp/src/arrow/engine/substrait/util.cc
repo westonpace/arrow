@@ -44,11 +44,11 @@ Result<std::shared_ptr<RecordBatchReader>> ExecuteSerializedPlan(
     const Buffer& substrait_buffer, const ExtensionIdRegistry* registry,
     compute::FunctionRegistry* func_registry, const ConversionOptions& conversion_options,
     bool use_threads, MemoryPool* memory_pool) {
-  ARROW_ASSIGN_OR_RAISE(compute::Declaration plan,
+  ARROW_ASSIGN_OR_RAISE(engine::PlanInfo plan,
                         DeserializePlan(substrait_buffer, registry,
                                         /*ext_set_out=*/nullptr, conversion_options));
-  return compute::DeclarationToReader(std::move(plan), use_threads, memory_pool,
-                                      func_registry);
+  return compute::DeclarationToReader(std::move(plan.root.declaration), use_threads,
+                                      memory_pool, func_registry);
 }
 
 Result<std::shared_ptr<Buffer>> SerializeJsonPlan(const std::string& substrait_json) {

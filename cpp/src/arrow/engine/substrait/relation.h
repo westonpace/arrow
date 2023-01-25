@@ -34,5 +34,19 @@ struct ARROW_ENGINE_EXPORT DeclarationInfo {
   std::shared_ptr<Schema> output_schema;
 };
 
+/// Information resulting from converting a Substrait plan
+struct ARROW_ENGINE_EXPORT PlanInfo {
+  /// The root node of the plan
+  ///
+  /// If a plan has multiple top-level nodes it should only have one
+  /// RelRoot and that will be the node here.
+  DeclarationInfo root;
+  /// The output schema of the plan
+  ///
+  /// This will be similar to root.output_schema but will incorporate
+  /// the column names from the plan.
+  std::shared_ptr<Schema> output_schema;
+};
+
 }  // namespace engine
 }  // namespace arrow

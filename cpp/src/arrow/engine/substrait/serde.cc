@@ -127,15 +127,17 @@ DeclarationFactory MakeWriteDeclarationFactory(
   };
 }
 
-DeclarationFactory MakeNoSinkDeclarationFactory() {
-  return [](compute::Declaration input,
-            std::vector<std::string> names) -> Result<compute::Declaration> {
-    return input;
-  };
-}
-
 constexpr uint32_t kMinimumMajorVersion = 0;
 constexpr uint32_t kMinimumMinorVersion = 20;
+
+Status CheckVersion(const substrait::Plan& plan) {
+  if (plan.version().major_number() < kMinimumMajorVersion &&
+      plan.version().minor_number() < kMinimumMinorVersion) {
+    return Status::Invalid("Can only parse plans with a version >= ",
+                           kMinimumMajorVersion, ".", kMinimumMinorVersion);
+  }
+  return Status::OK();
+}
 
 Result<std::vector<compute::Declaration>> DeserializePlans(
     const Buffer& buf, DeclarationFactory declaration_factory,
@@ -143,11 +145,7 @@ Result<std::vector<compute::Declaration>> DeserializePlans(
     const ConversionOptions& conversion_options) {
   ARROW_ASSIGN_OR_RAISE(auto plan, ParseFromBuffer<substrait::Plan>(buf));
 
-  if (plan.version().major_number() < kMinimumMajorVersion &&
-      plan.version().minor_number() < kMinimumMinorVersion) {
-    return Status::Invalid("Can only parse plans with a version >= ",
-                           kMinimumMajorVersion, ".", kMinimumMinorVersion);
-  }
+  ARROW_RETURN_NOT_OK(CheckVersion(plan));
 
   ARROW_ASSIGN_OR_RAISE(auto ext_set,
                         GetExtensionSetFromPlan(plan, conversion_options, registry));
@@ -194,19 +192,43 @@ Result<std::vector<compute::Declaration>> DeserializePlans(
                           registry, ext_set_out, conversion_options);
 }
 
-ARROW_ENGINE_EXPORT Result<compute::Declaration> DeserializePlan(
+ARROW_ENGINE_EXPORT Result<PlanInfo> DeserializePlan(
     const Buffer& buf, const ExtensionIdRegistry* registry, ExtensionSet* ext_set_out,
     const ConversionOptions& conversion_options) {
-  ARROW_ASSIGN_OR_RAISE(std::vector<compute::Declaration> top_level_decls,
-                        DeserializePlans(buf, MakeNoSinkDeclarationFactory(), registry,
-                                         ext_set_out, conversion_options));
-  if (top_level_decls.empty()) {
-    return Status::Invalid("No RelRoot in plan");
+  ARROW_ASSIGN_OR_RAISE(auto plan, ParseFromBuffer<substrait::Plan>(buf));
+  ARROW_RETURN_NOT_OK(CheckVersion(plan));
+
+  ARROW_ASSIGN_OR_RAISE(auto ext_set,
+                        GetExtensionSetFromPlan(plan, conversion_options, registry));
+
+  if (plan.relations_size() == 0) {
+    return Status::Invalid("No top-level relations in plan");
   }
-  if (top_level_decls.size() != 1) {
-    return Status::Invalid("Multiple top level declarations found in Substrait plan");
+  if (plan.relations_size() > 1) {
+    return Status::NotImplemented(
+        "multiple top-level relations in plan (common subtrees)");
   }
-  return top_level_decls[0];
+
+  PlanInfo plan_info;
+  const substrait::PlanRel& plan_rel = plan.relations(0);
+  ARROW_ASSIGN_OR_RAISE(
+      plan_info.root,
+      FromProto(plan_rel.has_root() ? plan_rel.root().input() : plan_rel.rel(), ext_set,
+                conversion_options));
+
+  if (plan_rel.has_root()) {
+    std::vector<std::string> names;
+    names.assign(plan_rel.root().names().begin(), plan_rel.root().names().end());
+    ARROW_ASSIGN_OR_RAISE(plan_info.output_schema,
+                          plan_info.root.output_schema->WithNames(names));
+  } else {
+    plan_info.output_schema = plan_info.root.output_schema;
+  }
+
+  if (ext_set_out) {
+    *ext_set_out = std::move(ext_set);
+  }
+  return plan_info;
 }
 
 namespace {

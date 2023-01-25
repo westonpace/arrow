@@ -1945,6 +1945,12 @@ class ARROW_EXPORT Schema : public detail::Fingerprintable,
   std::shared_ptr<Schema> WithMetadata(
       const std::shared_ptr<const KeyValueMetadata>& metadata) const;
 
+  /// \brief Replace column names with new names
+  ///
+  /// \param[in] names new column names
+  /// \return new Schema
+  Result<std::shared_ptr<Schema>> WithNames(const std::vector<std::string>& names) const;
+
   /// \brief Return copy of Schema without the KeyValueMetadata
   std::shared_ptr<Schema> RemoveMetadata() const;
 
