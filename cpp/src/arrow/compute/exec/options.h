@@ -175,6 +175,13 @@ class ARROW_EXPORT FilterNodeOptions : public ExecNodeOptions {
   Expression filter_expression;
 };
 
+class ARROW_EXPORT FetchNodeOptions : public ExecNodeOptions {
+ public:
+  FetchNodeOptions(int64_t offset, int64_t count) : offset(offset), count(count) {}
+  int64_t offset;
+  int64_t count;
+};
+
 /// \brief Make a node which executes expressions on input batches, producing new batches.
 ///
 /// Each expression will be evaluated against each batch which is pushed to

@@ -84,12 +84,12 @@ class SequencingQueueImpl : public SequencingQueue {
 
  private:
   Status DeliverNextUnlocked(ExecBatch batch, std::unique_lock<std::mutex>&& lk) {
+    // Should be able to detect and avoid this at plan construction
     DCHECK_NE(batch.index, ::arrow::compute::kUnsequencedIndex)
         << "attempt to use a sequencing queue on an unsequenced stream of batches";
     tasks_.clear();
     next_index_++;
-    ARROW_ASSIGN_OR_RAISE(Task batch_task, process_(std::move(queue_.top())));
-    tasks_.push_back(std::move(batch_task));
+    ARROW_ASSIGN_OR_RAISE(Task this_task, process_(std::move(queue_.top())));
     while (!queue_.empty() && next_index_ == queue_.top().index) {
       ARROW_ASSIGN_OR_RAISE(Task task, process_(std::move(queue_.top())));
       tasks_.push_back(std::move(task));
@@ -98,8 +98,9 @@ class SequencingQueueImpl : public SequencingQueue {
     }
     lk.unlock();
     for (auto& task : tasks_) {
-      ARROW_RETURN_NOT_OK(std::move(task)());
+      schedule_(std::move(task));
     }
+    ARROW_RETURN_NOT_OK(std::move(this_task)());
     return Status::OK();
   }
 
