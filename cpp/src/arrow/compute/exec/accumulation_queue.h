@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <vector>
 
 #include "arrow/compute/exec.h"
@@ -74,7 +75,7 @@ class AccumulationQueue {
 class SequencingQueue {
  public:
   using Task = FnOnce<Status()>;
-  using ProcessCallback = std::function<Result<Task>(ExecBatch)>;
+  using ProcessCallback = std::function<Result<std::optional<Task>>(ExecBatch)>;
   using ScheduleCallback = std::function<void(Task)>;
 
   virtual ~SequencingQueue() = default;

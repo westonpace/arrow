@@ -83,6 +83,13 @@ class ARROW_EXPORT QueryContext {
   ///
   /// \param fn The task to run. Takes no arguments and returns a Status.
   /// \param name A name to give the task for traceability and debugging
+  void ScheduleTask(FnOnce<Status()> fn, std::string_view name);
+
+  /// \brief Add a single function as a task to the query's task group
+  ///        on the compute threadpool.
+  ///
+  /// \param fn The task to run. Takes no arguments and returns a Status.
+  /// \param name A name to give the task for traceability and debugging
   void ScheduleTask(std::function<Status()> fn, std::string_view name);
   /// \brief Add a single function as a task to the query's task group
   ///        on the compute threadpool.

@@ -60,6 +60,14 @@ Result<Future<>> QueryContext::BeginExternalTask(std::string_view name) {
   return Future<>{};
 }
 
+void QueryContext::ScheduleTask(FnOnce<Status()> fn, std::string_view name) {
+  ::arrow::internal::Executor* exec = executor();
+  // Adds a task which submits fn to the executor and tracks its progress.  If we're
+  // already stopping then the task is ignored and fn is not executed.
+  async_scheduler_->AddSimpleTask(
+      [exec, fn = std::move(fn)]() mutable { return exec->Submit(std::move(fn)); }, name);
+}
+
 void QueryContext::ScheduleTask(std::function<Status()> fn, std::string_view name) {
   ::arrow::internal::Executor* exec = executor();
   // Adds a task which submits fn to the executor and tracks its progress.  If we're

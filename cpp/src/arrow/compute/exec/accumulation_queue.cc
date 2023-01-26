@@ -89,10 +89,13 @@ class SequencingQueueImpl : public SequencingQueue {
         << "attempt to use a sequencing queue on an unsequenced stream of batches";
     tasks_.clear();
     next_index_++;
-    ARROW_ASSIGN_OR_RAISE(Task this_task, process_(std::move(queue_.top())));
+    ARROW_ASSIGN_OR_RAISE(std::optional<Task> this_task,
+                          process_(std::move(queue_.top())));
     while (!queue_.empty() && next_index_ == queue_.top().index) {
-      ARROW_ASSIGN_OR_RAISE(Task task, process_(std::move(queue_.top())));
-      tasks_.push_back(std::move(task));
+      ARROW_ASSIGN_OR_RAISE(std::optional<Task> task, process_(std::move(queue_.top())));
+      if (task) {
+        tasks_.push_back(std::move(*task));
+      }
       queue_.pop();
       next_index_++;
     }
@@ -100,7 +103,9 @@ class SequencingQueueImpl : public SequencingQueue {
     for (auto& task : tasks_) {
       schedule_(std::move(task));
     }
-    ARROW_RETURN_NOT_OK(std::move(this_task)());
+    if (this_task) {
+      ARROW_RETURN_NOT_OK(std::move(*this_task)());
+    }
     return Status::OK();
   }
 
