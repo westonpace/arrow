@@ -200,8 +200,8 @@ TEST(ExecPlanExecution, SourceSink) {
 
       Declaration plan(
           "source", SourceNodeOptions{basic_data.schema, basic_data.gen(parallel, slow)});
-      ASSERT_OK_AND_ASSIGN(auto result,
-                           DeclarationToExecBatches(std::move(plan), parallel));
+      ASSERT_OK_AND_ASSIGN(auto result, DeclarationToExecBatches(
+                                            std::move(plan), /*options=*/{}, parallel));
       AssertExecBatchesEqualIgnoringOrder(result.schema, result.batches,
                                           basic_data.batches);
     }
@@ -234,8 +234,9 @@ TEST(ExecPlanExecution, TableSourceSink) {
                          TableFromExecBatches(exp_batches.schema, exp_batches.batches));
     Declaration plan("table_source", TableSourceNodeOptions{table, batch_size});
 
-    ASSERT_OK_AND_ASSIGN(auto result_table,
-                         DeclarationToTable(std::move(plan), /*use_threads=*/false));
+    ASSERT_OK_AND_ASSIGN(
+        auto result_table,
+        DeclarationToTable(std::move(plan), /*options=*/{}, /*use_threads=*/false));
     AssertTablesEqualIgnoringOrder(table, result_table);
   }
 }
@@ -306,7 +307,8 @@ void TestRecordBatchReaderSourceSink(
                          to_reader(exp_batches));
     RecordBatchReaderSourceNodeOptions options{reader};
     Declaration plan("record_batch_reader_source", std::move(options));
-    ASSERT_OK_AND_ASSIGN(auto result, DeclarationToExecBatches(plan, parallel));
+    ASSERT_OK_AND_ASSIGN(auto result,
+                         DeclarationToExecBatches(plan, /*options=*/{}, parallel));
     AssertExecBatchesEqualIgnoringOrder(result.schema, result.batches,
                                         exp_batches.batches);
   }
@@ -789,8 +791,8 @@ TEST(ExecPlanExecution, StressSourceSink) {
           schema({field("a", int32()), field("b", boolean())}), num_batches);
       Declaration plan("source", SourceNodeOptions{random_data.schema,
                                                    random_data.gen(parallel, slow)});
-      ASSERT_OK_AND_ASSIGN(auto result,
-                           DeclarationToExecBatches(std::move(plan), parallel));
+      ASSERT_OK_AND_ASSIGN(auto result, DeclarationToExecBatches(
+                                            std::move(plan), /*options=*/{}, parallel));
       AssertExecBatchesEqualIgnoringOrder(result.schema, result.batches,
                                           random_data.batches);
     }
@@ -1007,7 +1009,7 @@ TEST(ExecPlanExecution, SourceGroupedSum) {
                                /*keys=*/{"str"}}}});
 
     ASSERT_OK_AND_ASSIGN(std::shared_ptr<Table> actual,
-                         DeclarationToTable(std::move(plan), parallel));
+                         DeclarationToTable(std::move(plan), /*options=*/{}, parallel));
 
     auto expected = parallel ? expected_parallel : expected_single;
 
@@ -1035,7 +1037,7 @@ TEST(ExecPlanExecution, SourceMinMaxScalar) {
               /*aggregates=*/{{"min_max", std::move(minmax_opts), "i32", "min_max"}},
               /*keys=*/{}}}});
     ASSERT_OK_AND_ASSIGN(auto result_table,
-                         DeclarationToTable(std::move(plan), parallel));
+                         DeclarationToTable(std::move(plan), /*options=*/{}, parallel));
     // No need to ignore order since there is only 1 row
     AssertTablesEqual(*result_table, *expected_table);
   }
@@ -1058,7 +1060,7 @@ TEST(ExecPlanExecution, NestedSourceFilter) {
          {"filter", FilterNodeOptions{greater_equal(field_ref(FieldRef("struct", "i32")),
                                                     literal(5))}}});
     ASSERT_OK_AND_ASSIGN(auto result_table,
-                         DeclarationToTable(std::move(plan), parallel));
+                         DeclarationToTable(std::move(plan), /*options=*/{}, parallel));
     AssertTablesEqual(*result_table, *expected_table);
   }
 }
@@ -1086,7 +1088,8 @@ TEST(ExecPlanExecution, NestedSourceProjectGroupedSum) {
           AggregateNodeOptions{/*aggregates=*/{{"hash_sum", nullptr, "i32", "sum(i32)"}},
                                /*keys=*/{"bool"}}}});
 
-    ASSERT_OK_AND_ASSIGN(auto actual, DeclarationToTable(std::move(plan), parallel));
+    ASSERT_OK_AND_ASSIGN(auto actual,
+                         DeclarationToTable(std::move(plan), /*options=*/{}, parallel));
     AssertTablesEqualIgnoringOrder(expected, actual);
   }
 }
@@ -1115,7 +1118,8 @@ TEST(ExecPlanExecution, SourceFilterProjectGroupedSumFilter) {
     auto expected = TableFromJSON(schema({field("a", int64()), field("b", utf8())}),
                                   {parallel ? R"([[3600, "alfa"], [2000, "beta"]])"
                                             : R"([[36, "alfa"], [20, "beta"]])"});
-    ASSERT_OK_AND_ASSIGN(auto actual, DeclarationToTable(std::move(plan), parallel));
+    ASSERT_OK_AND_ASSIGN(auto actual,
+                         DeclarationToTable(std::move(plan), /*options=*/{}, parallel));
     AssertTablesEqualIgnoringOrder(expected, actual);
   }
 }
@@ -1383,8 +1387,8 @@ TEST(ExecPlanExecution, SelfInnerHashJoinSink) {
 
     auto plan = Declaration("hashjoin", {left, right}, std::move(join_opts));
 
-    ASSERT_OK_AND_ASSIGN(auto result,
-                         DeclarationToExecBatches(std::move(plan), parallel));
+    ASSERT_OK_AND_ASSIGN(
+        auto result, DeclarationToExecBatches(std::move(plan), /*options=*/{}, parallel));
 
     std::vector<ExecBatch> expected = {
         ExecBatchFromJSON({int32(), utf8(), int32(), utf8()}, R"([
@@ -1421,8 +1425,8 @@ TEST(ExecPlanExecution, SelfOuterHashJoinSink) {
 
     auto plan = Declaration("hashjoin", {left, right}, std::move(join_opts));
 
-    ASSERT_OK_AND_ASSIGN(auto result,
-                         DeclarationToExecBatches(std::move(plan), parallel));
+    ASSERT_OK_AND_ASSIGN(
+        auto result, DeclarationToExecBatches(std::move(plan), /*options=*/{}, parallel));
 
     std::vector<ExecBatch> expected = {
         ExecBatchFromJSON({int32(), utf8(), int32(), utf8()}, R"([

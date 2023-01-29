@@ -62,16 +62,15 @@ ExecBatch& AccumulationQueue::operator[](size_t i) { return batches_[i]; }
 
 namespace {
 
-struct CompareBatchSeqNum {
+struct LowestBatchIndexAtTop {
   bool operator()(const ExecBatch& left, const ExecBatch& right) const {
-    return left.index < right.index;
+    return left.index > right.index;
   }
 };
 
 class SequencingQueueImpl : public SequencingQueue {
  public:
-  SequencingQueueImpl(ProcessCallback process, ScheduleCallback schedule)
-      : process_(std::move(process)), schedule_(std::move(schedule)) {}
+  SequencingQueueImpl(Processor* processor) : processor_(processor) {}
 
   Status InsertBatch(ExecBatch batch) override {
     std::unique_lock lk(mutex_);
@@ -90,9 +89,9 @@ class SequencingQueueImpl : public SequencingQueue {
     tasks_.clear();
     next_index_++;
     ARROW_ASSIGN_OR_RAISE(std::optional<Task> this_task,
-                          process_(std::move(queue_.top())));
+                          processor_->Process(std::move(batch)));
     while (!queue_.empty() && next_index_ == queue_.top().index) {
-      ARROW_ASSIGN_OR_RAISE(std::optional<Task> task, process_(std::move(queue_.top())));
+      ARROW_ASSIGN_OR_RAISE(std::optional<Task> task, processor_->Process(queue_.top()));
       if (task) {
         tasks_.push_back(std::move(*task));
       }
@@ -100,29 +99,72 @@ class SequencingQueueImpl : public SequencingQueue {
       next_index_++;
     }
     lk.unlock();
+    // Schedule tasks for stale items
     for (auto& task : tasks_) {
-      schedule_(std::move(task));
+      processor_->Schedule(std::move(task));
     }
+    // Run the current item immediately
     if (this_task) {
       ARROW_RETURN_NOT_OK(std::move(*this_task)());
     }
     return Status::OK();
   }
 
-  const ProcessCallback process_;
-  const ScheduleCallback schedule_;
+  Processor* processor_;
 
-  std::priority_queue<ExecBatch, std::vector<ExecBatch>, CompareBatchSeqNum> queue_;
+  std::priority_queue<ExecBatch, std::vector<ExecBatch>, LowestBatchIndexAtTop> queue_;
   int next_index_ = 0;
   std::mutex mutex_;
   std::vector<Task> tasks_;
 };
 
+class SerialSequencingQueueImpl : public SerialSequencingQueue {
+ public:
+  SerialSequencingQueueImpl(Processor* processor) : processor_(processor) {}
+
+  Status InsertBatch(ExecBatch batch) override {
+    std::unique_lock lk(mutex_);
+    queue_.push(std::move(batch));
+    if (queue_.top().index == next_index_ && !is_processing_) {
+      is_processing_ = true;
+      return DoProcess(std::move(lk));
+    }
+    return Status::OK();
+  }
+
+ private:
+  Status DoProcess(std::unique_lock<std::mutex>&& lk) {
+    while (!queue_.empty() && queue_.top().index == next_index_) {
+      ExecBatch next(queue_.top());
+      queue_.pop();
+      next_index_++;
+      lk.unlock();
+      // If we bail here we don't hold the lock so that is ok.  is_processing_ will
+      // never switch to true so no other threads can process but that should be ok
+      // since we failed anyways.
+      ARROW_RETURN_NOT_OK(processor_->Process(std::move(next)));
+      lk.lock();
+    }
+    is_processing_ = false;
+    return Status::OK();
+  }
+
+  Processor* processor_;
+
+  std::mutex mutex_;
+  std::priority_queue<ExecBatch, std::vector<ExecBatch>, LowestBatchIndexAtTop> queue_;
+  int next_index_ = 0;
+  bool is_processing_ = false;
+};
+
 }  // namespace
 
-std::unique_ptr<SequencingQueue> SequencingQueue::Make(ProcessCallback process,
-                                                       ScheduleCallback schedule) {
-  return std::make_unique<SequencingQueueImpl>(std::move(process), std::move(schedule));
+std::unique_ptr<SequencingQueue> SequencingQueue::Make(Processor* processor) {
+  return std::make_unique<SequencingQueueImpl>(processor);
+}
+
+std::unique_ptr<SerialSequencingQueue> SerialSequencingQueue::Make(Processor* processor) {
+  return std::make_unique<SerialSequencingQueueImpl>(processor);
 }
 
 }  // namespace util

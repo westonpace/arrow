@@ -144,8 +144,31 @@ class ARROW_EXPORT Executor {
     using ValueType = typename FutureType::ValueType;
 
     auto future = FutureType::Make();
-    auto task = std::bind(::arrow::detail::ContinueFuture{}, future,
-                          std::forward<Function>(func), std::forward<Args>(args)...);
+    struct {
+      Future<ValueType> sink;
+      Function func;
+      decltype(std::make_tuple(std::forward<Args>(args)...)) args;
+
+      void operator()() {
+        std::apply(
+            [this](auto&&... args) mutable {
+              ::arrow::detail::ContinueFuture{}(sink, std::move(func),
+                                                std::forward<Args>(args)...);
+            },
+            std::move(args));
+      }
+
+    } task{future, std::forward<Function>(func),
+           std::make_tuple(std::forward<Args>(args)...)};
+    // auto task = [future, func = std::forward<Function>(func),
+    //              args = std::make_tuple(std::forward<Args>(args)...)]() mutable {
+    //   std::apply(
+    //       [&future, func = std::forward<Function>(func)](auto&&... args) mutable {
+    //         ::arrow::detail::ContinueFuture{}(future, std::forward<Function>(func),
+    //                                           std::forward<Args>(args)...);
+    //       },
+    //       std::move(args));
+    // };
     struct {
       WeakFuture<ValueType> weak_fut;
 

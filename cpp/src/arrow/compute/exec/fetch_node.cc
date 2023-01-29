@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <iostream>
 #include <sstream>
 
 #include "arrow/compute/api_vector.h"
@@ -45,9 +46,10 @@ class FetchCounter {
   struct Page {
     int64_t to_skip;
     int64_t to_send;
+    bool ended;
   };
 
-  FetchCounter(int64_t rows_to_send, int64_t rows_to_skip)
+  FetchCounter(int64_t rows_to_skip, int64_t rows_to_send)
       : rows_to_send_(rows_to_send), rows_to_skip_(rows_to_skip) {}
 
   Page NextPage(const ExecBatch& batch) {
@@ -63,7 +65,7 @@ class FetchCounter {
           std::min(rows_to_send_, batch.length - rows_in_batch_to_skip);
       rows_to_send_ -= rows_in_batch_to_send;
     }
-    return {rows_in_batch_to_skip, rows_in_batch_to_send};
+    return {rows_in_batch_to_skip, rows_in_batch_to_send, rows_to_send_ == 0};
   }
 
  private:
@@ -71,19 +73,19 @@ class FetchCounter {
   int64_t rows_to_skip_;
 };
 
-class FetchNode : public MapNode, public TracedNode<FetchNode> {
+class FetchNode : public ExecNode,
+                  public TracedNode<FetchNode>,
+                  util::SequencingQueue::Processor {
  public:
   FetchNode(ExecPlan* plan, std::vector<ExecNode*> inputs,
             std::shared_ptr<Schema> output_schema, int64_t offset, int64_t count)
-      : MapNode(plan, std::move(inputs), std::move(output_schema)),
-        max_to_send_(count),
-        fetch_counter_(offset, count) {
-    sequencing_queue_ = util::SequencingQueue::Make(
-        [this](ExecBatch batch) { return SequenceProcess(std::move(batch)); },
-        [this](util::SequencingQueue::Task task) {
-          return SequenceSchedule(std::move(task));
-        });
-  }
+      : ExecNode(plan, std::move(inputs), {"input"}, std::move(output_schema)),
+        offset_(offset),
+        count_(count),
+        fetch_counter_(offset, count),
+        sequencing_queue_(util::SequencingQueue::Make(this)) {}
+
+  ~FetchNode() { std::cout << "Destroyed" << std::endl; }
 
   static Result<ExecNode*> Make(ExecPlan* plan, std::vector<ExecNode*> inputs,
                                 const ExecNodeOptions& options) {
@@ -108,65 +110,79 @@ class FetchNode : public MapNode, public TracedNode<FetchNode> {
 
   const char* kind_name() const override { return "FetchNode"; }
 
-  Result<ExecBatch> ProcessBatch(ExecBatch batch) override {
-    std::vector<Datum> values{exprs_.size()};
-    for (size_t i = 0; i < exprs_.size(); ++i) {
-      util::tracing::Span span;
-      START_COMPUTE_SPAN(span, "Project",
-                         {{"project.type", exprs_[i].type()->ToString()},
-                          {"project.length", batch.length},
-                          {"project.expression", exprs_[i].ToString()}});
-      ARROW_ASSIGN_OR_RAISE(Expression simplified_expr,
-                            SimplifyWithGuarantee(exprs_[i], batch.guarantee));
-
-      ARROW_ASSIGN_OR_RAISE(
-          values[i], ExecuteScalarExpression(simplified_expr, batch,
-                                             plan()->query_context()->exec_context()));
-    }
-    return ExecBatch{std::move(values), batch.length};
+  Status InputFinished(ExecNode* input, int total_batches) override {
+    DCHECK_EQ(input, inputs_[0]);
+    EVENT_ON_CURRENT_SPAN("InputFinished", {{"batches.length", total_batches}});
+    // We don't actually know how many output batches we will have because we
+    // might have less.  So we have to delay this signal and send it out as part
+    // of InputReceived.  Typically this is not a problem.
+    return Status::OK();
   }
 
-  Result<std::optional<util::SequencingQueue::Task>> SequenceProcess(ExecBatch batch) {
+  Status StartProducing() override {
+    NoteStartProducing(ToStringExtra());
+    return Status::OK();
+  }
+
+  void PauseProducing(ExecNode* output, int32_t counter) override {
+    inputs_[0]->PauseProducing(this, counter);
+  }
+
+  void ResumeProducing(ExecNode* output, int32_t counter) override {
+    inputs_[0]->ResumeProducing(this, counter);
+  }
+
+  Status StopProducingImpl() override { return Status::OK(); }
+
+  Status InputReceived(ExecNode* input, ExecBatch batch) override {
+    auto scope = TraceInputReceived(batch);
+    DCHECK_EQ(input, inputs_[0]);
+
+    return sequencing_queue_->InsertBatch(std::move(batch));
+  }
+
+  Result<std::optional<util::SequencingQueue::Task>> Process(ExecBatch batch) override {
+    if (source_stopped_) {
+      return std::nullopt;
+    }
     FetchCounter::Page page = fetch_counter_.NextPage(batch);
+    std::optional<util::SequencingQueue::Task> task_or_none;
     if (page.to_send > 0) {
-      ExecBatch batch_to_send = std::move(batch);
-      if (page.to_skip > 0) {
-        batch_to_send = batch_to_send.Slice(0, page.to_skip);
-      }
-      return [this, batch_to_send]() mutable {
+      int new_index = batch_count_++;
+      task_or_none = [this, to_send = page.to_send, to_skip = page.to_skip, new_index,
+                      batch = std::move(batch)]() mutable {
+        ExecBatch batch_to_send = std::move(batch);
+        if (to_skip > 0 || to_send < batch_to_send.length) {
+          batch_to_send = batch_to_send.Slice(to_skip, to_send);
+        }
+        batch_to_send.index = new_index;
         return output_->InputReceived(this, std::move(batch_to_send));
       };
-    } else if (!source_stopped_) {
-      source_stopped_ = true;
-      inputs_[0]->StopProducing();
-      output_->InputFinished()
     }
-    return std::nullopt;
+    if (page.ended && !source_stopped_) {
+      source_stopped_ = true;
+      ARROW_RETURN_NOT_OK(inputs_[0]->StopProducing());
+      ARROW_RETURN_NOT_OK(output_->InputFinished(this, batch_count_));
+    }
+    return task_or_none;
   }
 
-  void SequenceSchedule(util::SequencingQueue::Task task) {
+  void Schedule(util::SequencingQueue::Task task) override {
     plan_->query_context()->ScheduleTask(std::move(task), "FetchNode::ProcessBatch");
   }
 
  protected:
   std::string ToStringExtra(int indent = 0) const override {
     std::stringstream ss;
-    ss << "projection=[";
-    for (int i = 0; static_cast<size_t>(i) < exprs_.size(); i++) {
-      if (i > 0) ss << ", ";
-      auto repr = exprs_[i].ToString();
-      if (repr != output_schema_->field(i)->name()) {
-        ss << '"' << output_schema_->field(i)->name() << "\": ";
-      }
-      ss << repr;
-    }
-    ss << ']';
+    ss << "offset=" << offset_ << " count=" << count_;
     return ss.str();
   }
 
  private:
   bool source_stopped_ = false;
-  int64_t max_to_send_;
+  int64_t offset_;
+  int64_t count_;
+  int32_t batch_count_ = 0;
   FetchCounter fetch_counter_;
   std::unique_ptr<util::SequencingQueue> sequencing_queue_;
 };
@@ -175,8 +191,8 @@ class FetchNode : public MapNode, public TracedNode<FetchNode> {
 
 namespace internal {
 
-void RegisterProjectNode(ExecFactoryRegistry* registry) {
-  DCHECK_OK(registry->AddFactory("project", ProjectNode::Make));
+void RegisterFetchNode(ExecFactoryRegistry* registry) {
+  DCHECK_OK(registry->AddFactory(std::string(FetchNodeOptions::kName), FetchNode::Make));
 }
 
 }  // namespace internal
