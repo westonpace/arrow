@@ -17,7 +17,6 @@
 // under the License.
 
 #include <atomic>
-#include <iostream>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -355,7 +354,6 @@ class ConsumingSinkNode : public ExecNode,
 
   Status InputReceived(ExecNode* input, ExecBatch batch) override {
     auto scope = TraceInputReceived(batch);
-    std::cout << "InputReceived\n";
 
     DCHECK_EQ(input, inputs_[0]);
 
@@ -372,11 +370,8 @@ class ConsumingSinkNode : public ExecNode,
       return Status::OK();
     }
 
-    std::cout << "Consuming a batch of size " << batch.length << std::endl;
-
     ARROW_RETURN_NOT_OK(consumer_->Consume(std::move(batch)));
     if (input_counter_.Increment()) {
-      std::cout << "Finish in process" << std::endl;
       Finish();
     }
 
@@ -384,9 +379,7 @@ class ConsumingSinkNode : public ExecNode,
   }
 
   Status InputFinished(ExecNode* input, int total_batches) override {
-    std::cout << "InputFinished total_batches=" << total_batches << std::endl;
     if (input_counter_.SetTotal(total_batches)) {
-      std::cout << "Finish in IF\n";
       Finish();
     }
     return Status::OK();

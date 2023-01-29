@@ -86,21 +86,21 @@ class SequencingQueueImpl : public SequencingQueue {
     // Should be able to detect and avoid this at plan construction
     DCHECK_NE(batch.index, ::arrow::compute::kUnsequencedIndex)
         << "attempt to use a sequencing queue on an unsequenced stream of batches";
-    tasks_.clear();
+    std::vector<Task> tasks;
     next_index_++;
     ARROW_ASSIGN_OR_RAISE(std::optional<Task> this_task,
                           processor_->Process(std::move(batch)));
     while (!queue_.empty() && next_index_ == queue_.top().index) {
       ARROW_ASSIGN_OR_RAISE(std::optional<Task> task, processor_->Process(queue_.top()));
       if (task) {
-        tasks_.push_back(std::move(*task));
+        tasks.push_back(std::move(*task));
       }
       queue_.pop();
       next_index_++;
     }
     lk.unlock();
     // Schedule tasks for stale items
-    for (auto& task : tasks_) {
+    for (auto& task : tasks) {
       processor_->Schedule(std::move(task));
     }
     // Run the current item immediately
@@ -115,7 +115,6 @@ class SequencingQueueImpl : public SequencingQueue {
   std::priority_queue<ExecBatch, std::vector<ExecBatch>, LowestBatchIndexAtTop> queue_;
   int next_index_ = 0;
   std::mutex mutex_;
-  std::vector<Task> tasks_;
 };
 
 class SerialSequencingQueueImpl : public SerialSequencingQueue {

@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <iostream>
 #include <sstream>
 
 #include "arrow/compute/api_vector.h"
@@ -85,8 +84,6 @@ class FetchNode : public ExecNode,
         fetch_counter_(offset, count),
         sequencing_queue_(util::SequencingQueue::Make(this)) {}
 
-  ~FetchNode() { std::cout << "Destroyed" << std::endl; }
-
   static Result<ExecNode*> Make(ExecPlan* plan, std::vector<ExecNode*> inputs,
                                 const ExecNodeOptions& options) {
     RETURN_NOT_OK(ValidateExecNodeInputs(plan, inputs, 1, "FetchNode"));
@@ -113,9 +110,16 @@ class FetchNode : public ExecNode,
   Status InputFinished(ExecNode* input, int total_batches) override {
     DCHECK_EQ(input, inputs_[0]);
     EVENT_ON_CURRENT_SPAN("InputFinished", {{"batches.length", total_batches}});
-    // We don't actually know how many output batches we will have because we
-    // might have less.  So we have to delay this signal and send it out as part
-    // of InputReceived.  Typically this is not a problem.
+    // Normally we will finish in InputFinished because we sent count_ rows. However, it
+    // is possible that the input does not contain count_ rows and so we have to end from
+    // here
+    if (in_batch_counter_.SetTotal(total_batches)) {
+      if (!finished_) {
+        finished_ = true;
+        ARROW_RETURN_NOT_OK(inputs_[0]->StopProducing());
+        ARROW_RETURN_NOT_OK(output_->InputFinished(this, out_batch_count_));
+      }
+    }
     return Status::OK();
   }
 
@@ -142,13 +146,13 @@ class FetchNode : public ExecNode,
   }
 
   Result<std::optional<util::SequencingQueue::Task>> Process(ExecBatch batch) override {
-    if (source_stopped_) {
+    if (finished_) {
       return std::nullopt;
     }
     FetchCounter::Page page = fetch_counter_.NextPage(batch);
     std::optional<util::SequencingQueue::Task> task_or_none;
     if (page.to_send > 0) {
-      int new_index = batch_count_++;
+      int new_index = out_batch_count_++;
       task_or_none = [this, to_send = page.to_send, to_skip = page.to_skip, new_index,
                       batch = std::move(batch)]() mutable {
         ExecBatch batch_to_send = std::move(batch);
@@ -159,10 +163,13 @@ class FetchNode : public ExecNode,
         return output_->InputReceived(this, std::move(batch_to_send));
       };
     }
-    if (page.ended && !source_stopped_) {
-      source_stopped_ = true;
+    // In the in_batch_counter_ case we've run out of data to process (count_ was
+    // greater than the total # of non-skipped rows)  In the page.ended case we've
+    // just hit our desired output count
+    if (in_batch_counter_.Increment() || (page.ended && !finished_)) {
+      finished_ = true;
       ARROW_RETURN_NOT_OK(inputs_[0]->StopProducing());
-      ARROW_RETURN_NOT_OK(output_->InputFinished(this, batch_count_));
+      ARROW_RETURN_NOT_OK(output_->InputFinished(this, out_batch_count_));
     }
     return task_or_none;
   }
@@ -179,10 +186,11 @@ class FetchNode : public ExecNode,
   }
 
  private:
-  bool source_stopped_ = false;
+  bool finished_ = false;
   int64_t offset_;
   int64_t count_;
-  int32_t batch_count_ = 0;
+  AtomicCounter in_batch_counter_;
+  int32_t out_batch_count_ = 0;
   FetchCounter fetch_counter_;
   std::unique_ptr<util::SequencingQueue> sequencing_queue_;
 };
