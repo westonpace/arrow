@@ -135,7 +135,7 @@ std::optional<compute::Expression> ColumnChunkStatisticsAsExpression(
     min = maybe_min.MoveValueUnsafe();
     max = maybe_max.MoveValueUnsafe();
 
-    if (min->Equals(max)) {
+    if (min->Equals(*max)) {
       auto single_value = compute::equal(field_expr, compute::literal(std::move(min)));
 
       if (statistics->null_count() == 0) {
