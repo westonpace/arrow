@@ -76,6 +76,7 @@ jobs:
       ARROW_FLIGHT: OFF
       ARROW_HDFS: OFF
       ARROW_HOME: /usr
+      ARROW_JSON: OFF
       ARROW_JEMALLOC: OFF
       ARROW_MIMALLOC: OFF
       ARROW_ORC: OFF
