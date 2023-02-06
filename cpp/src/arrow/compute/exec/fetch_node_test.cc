@@ -47,10 +47,11 @@ void CheckFetch(FetchNodeOptions options) {
                              {"jitter", JitterNodeOptions(kSeed, kJitterMod)},
                              {"fetch", options}});
   for (bool use_threads : {false, true}) {
-    PlanExecutionOptions do_sequence;
-    do_sequence.sequence_output = true;
+    QueryOptions query_options;
+    query_options.sequence_output = true;
+    query_options.use_threads = use_threads;
     ASSERT_OK_AND_ASSIGN(std::shared_ptr<Table> actual,
-                         DeclarationToTable(plan, do_sequence, use_threads));
+                         DeclarationToTable(plan, query_options));
 
     if (options.offset >= input->num_rows() || options.count == 0) {
       // In these cases, Table::Slice would fail or give us a table with 1 chunk while

@@ -408,6 +408,54 @@ struct ARROW_EXPORT Declaration {
   std::string label;
 };
 
+struct ARROW_EXPORT QueryOptions {
+  QueryOptions();
+
+  /// \brief Should the plan use a legacy batching strategy
+  ///
+  /// This is currently in place only to support the Scanner::ToTable
+  /// method.  This method relies on batch indices from the scanner
+  /// remaining consistent.  This is impractical in the ExecPlan which
+  /// might slice batches as needed (e.g. for a join)
+  ///
+  /// However, it still works for simple plans and this is the only way
+  /// we have at the moment for maintaining implicit order.
+  bool use_legacy_batching;
+
+  /// If the output has a meaningful order then sequence the output of the plan
+  ///
+  /// If the output has no meaningful order then this option will be ignored.
+  bool sequence_output = false;
+
+  /// \brief should the plan use multiple background threads for CPU-intensive work
+  ///
+  /// If this is false then all CPU work will be done on the calling thread.  I/O tasks
+  /// will still happen on the I/O executor and may be multi-threaded (but should not use
+  /// significant CPU resources).
+  ///
+  /// Will be ignored if custom_cpu_executor is set
+  bool use_threads = true;
+
+  /// \brief custom executor to use for CPU-intensive work
+  ///
+  /// Must be null or remain valid for the duration of the plan.  If this is null then
+  /// a default thread pool will be chosen whose behavior will be controlled by
+  /// the `use_threads` option.
+  ::arrow::internal::Executor* custom_cpu_executor = NULLPTR;
+
+  /// \brief a memory pool to use for allocations
+  ///
+  /// Must be null or remain valid for the duration of the plan.  If this is null then
+  /// the arrow::default_memory_pool() will be used.
+  MemoryPool* memory_pool = NULLPTR;
+
+  /// \brief a function registry to use for the plan
+  ///
+  /// Must be null or remain valid for the duration of the plan.  If this is null then
+  /// defaults to arrow::compute::GetFunctionRegistry()
+  FunctionRegistry* function_registry = NULLPTR;
+};
+
 /// \brief Calculate the output schema of a declaration
 ///
 /// This does not actually execute the plan.  This operation may fail if the
@@ -438,11 +486,6 @@ ARROW_EXPORT Result<std::shared_ptr<Schema>> DeclarationToSchema(
 ARROW_EXPORT Result<std::string> DeclarationToString(
     const Declaration& declaration, FunctionRegistry* function_registry = NULLPTR);
 
-struct PlanExecutionOptions {
-  /// If the output has a meaningful order then sequence the output of the plan
-  bool sequence_output = false;
-};
-
 /// \brief Utility method to run a declaration and collect the results into a table
 ///
 /// \param declaration A declaration describing the plan to run
@@ -458,9 +501,12 @@ struct PlanExecutionOptions {
 /// table.  It will then create an ExecPlan from the declaration, start the exec plan,
 /// block until the plan has finished, and return the created table.
 ARROW_EXPORT Result<std::shared_ptr<Table>> DeclarationToTable(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
+
+ARROW_EXPORT Result<std::shared_ptr<Table>> DeclarationToTable(
+    Declaration declaration, QueryOptions query_options);
 
 /// \brief Asynchronous version of \see DeclarationToTable
 ///
@@ -474,7 +520,7 @@ ARROW_EXPORT Result<std::shared_ptr<Table>> DeclarationToTable(
 /// \param function_registry The function registry to use for function execution. If null
 ///                          then the default function registry will be used.
 ARROW_EXPORT Future<std::shared_ptr<Table>> DeclarationToTableAsync(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
@@ -483,8 +529,7 @@ ARROW_EXPORT Future<std::shared_ptr<Table>> DeclarationToTableAsync(
 /// The executor must be specified (cannot be null) and must be kept alive until the
 /// returned future finishes.
 ARROW_EXPORT Future<std::shared_ptr<Table>> DeclarationToTableAsync(
-    Declaration declaration, ExecContext custom_exec_context,
-    PlanExecutionOptions options = {});
+    Declaration declaration, ExecContext custom_exec_context);
 
 /// \brief a collection of exec batches with a common schema
 struct BatchesWithCommonSchema {
@@ -497,7 +542,7 @@ struct BatchesWithCommonSchema {
 ///
 /// \see DeclarationToTable for details on threading & execution
 ARROW_EXPORT Result<BatchesWithCommonSchema> DeclarationToExecBatches(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
@@ -505,7 +550,7 @@ ARROW_EXPORT Result<BatchesWithCommonSchema> DeclarationToExecBatches(
 ///
 /// \see DeclarationToTableAsync for details on threading & execution
 ARROW_EXPORT Future<BatchesWithCommonSchema> DeclarationToExecBatchesAsync(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
@@ -513,14 +558,13 @@ ARROW_EXPORT Future<BatchesWithCommonSchema> DeclarationToExecBatchesAsync(
 ///
 /// \see DeclarationToTableAsync for details on threading & execution
 ARROW_EXPORT Future<BatchesWithCommonSchema> DeclarationToExecBatchesAsync(
-    Declaration declaration, ExecContext custom_exec_context,
-    PlanExecutionOptions options = {});
+    Declaration declaration, ExecContext custom_exec_context);
 
 /// \brief Utility method to run a declaration and collect the results into a vector
 ///
 /// \see DeclarationToTable for details on threading & execution
 ARROW_EXPORT Result<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatches(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
@@ -528,7 +572,7 @@ ARROW_EXPORT Result<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatc
 ///
 /// \see DeclarationToTableAsync for details on threading & execution
 ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatchesAsync(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
@@ -536,7 +580,7 @@ ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatc
 ///
 /// \see DeclarationToTableAsync for details on threading & execution
 ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatchesAsync(
-    Declaration declaration, ExecContext exec_context, PlanExecutionOptions options = {});
+    Declaration declaration, ExecContext exec_context);
 
 /// \brief Utility method to run a declaration and return results as a RecordBatchReader
 ///
@@ -554,13 +598,13 @@ ARROW_EXPORT Future<std::vector<std::shared_ptr<RecordBatch>>> DeclarationToBatc
 ///
 /// If a custom exec context is provided then the value of `use_threads` will be ignored.
 ARROW_EXPORT Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
 /// \brief Overload of \see DeclarationToReader accepting a custom exec context
 ARROW_EXPORT Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(
-    Declaration declaration, ExecContext exec_context, PlanExecutionOptions options = {});
+    Declaration declaration, ExecContext exec_context);
 
 /// \brief Utility method to run a declaration and ignore results
 ///
@@ -568,9 +612,7 @@ ARROW_EXPORT Result<std::unique_ptr<RecordBatchReader>> DeclarationToReader(
 /// example, when the plan ends with a write node.
 ///
 /// \see DeclarationToTable for details on threading & execution
-ARROW_EXPORT Status DeclarationToStatus(Declaration declaration,
-                                        PlanExecutionOptions options = {},
-                                        bool use_threads = true,
+ARROW_EXPORT Status DeclarationToStatus(Declaration declaration, bool use_threads = true,
                                         MemoryPool* memory_pool = default_memory_pool(),
                                         FunctionRegistry* function_registry = NULLPTR);
 
@@ -581,7 +623,7 @@ ARROW_EXPORT Status DeclarationToStatus(Declaration declaration,
 ///
 /// \see DeclarationToTableAsync for details on threading & execution
 ARROW_EXPORT Future<> DeclarationToStatusAsync(
-    Declaration declaration, PlanExecutionOptions options = {}, bool use_threads = true,
+    Declaration declaration, bool use_threads = true,
     MemoryPool* memory_pool = default_memory_pool(),
     FunctionRegistry* function_registry = NULLPTR);
 
@@ -589,8 +631,7 @@ ARROW_EXPORT Future<> DeclarationToStatusAsync(
 ///
 /// \see DeclarationToTableAsync for details on threading & execution
 ARROW_EXPORT Future<> DeclarationToStatusAsync(Declaration declaration,
-                                               ExecContext exec_context,
-                                               PlanExecutionOptions options = {});
+                                               ExecContext exec_context);
 
 /// \brief Wrap an ExecBatch generator in a RecordBatchReader.
 ///

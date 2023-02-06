@@ -264,7 +264,8 @@ class ARROW_EXPORT SinkNodeOptions : public ExecNodeOptions {
       : generator(generator),
         schema(schema),
         backpressure(backpressure),
-        backpressure_monitor(backpressure_monitor) {}
+        backpressure_monitor(backpressure_monitor),
+        sequence_delivery(false) {}
 
   explicit SinkNodeOptions(std::function<Future<std::optional<ExecBatch>>()>* generator,
                            BackpressureOptions backpressure = {},
@@ -273,7 +274,8 @@ class ARROW_EXPORT SinkNodeOptions : public ExecNodeOptions {
       : generator(generator),
         schema(NULLPTR),
         backpressure(std::move(backpressure)),
-        backpressure_monitor(backpressure_monitor) {}
+        backpressure_monitor(backpressure_monitor),
+        sequence_delivery(false) {}
 
   /// \brief A pointer to a generator of batches.
   ///

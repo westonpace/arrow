@@ -35,7 +35,6 @@ TEST(JitterNode, Basic) {
   std::shared_ptr<Table> input =
       gen::TestGen({gen::Constant(std::make_shared<Int32Scalar>(0))})
           ->Table(1, kNumBatches);
-  std::cout << "Input" << std::endl << std::endl << std::endl;
   Declaration plan =
       Declaration::Sequence({{"table_source", TableSourceNodeOptions(input)},
                              {"jitter", JitterNodeOptions(kTestSeed, kMaxJitterMod)}});

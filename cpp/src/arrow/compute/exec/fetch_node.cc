@@ -72,13 +72,12 @@ class FetchCounter {
   int64_t rows_to_skip_;
 };
 
-class FetchNode : public ExecNode,
-                  public TracedNode<FetchNode>,
-                  util::SequencingQueue::Processor {
+class FetchNode : public ExecNode, public TracedNode, util::SequencingQueue::Processor {
  public:
   FetchNode(ExecPlan* plan, std::vector<ExecNode*> inputs,
             std::shared_ptr<Schema> output_schema, int64_t offset, int64_t count)
       : ExecNode(plan, std::move(inputs), {"input"}, std::move(output_schema)),
+        TracedNode(this),
         offset_(offset),
         count_(count),
         fetch_counter_(offset, count),

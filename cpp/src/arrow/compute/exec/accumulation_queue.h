@@ -24,12 +24,8 @@
 
 #include "arrow/compute/exec.h"
 #include "arrow/result.h"
-#include "arrow/util/functional.h"
 
 namespace arrow {
-
-using internal::FnOnce;
-
 namespace util {
 using arrow::compute::ExecBatch;
 
