@@ -382,7 +382,6 @@ NestedType <- R6Class("NestedType", inherit = DataType)
 #' @export
 #' @seealso [dictionary()] for creating a dictionary (factor-like) type.
 #' @examplesIf arrow_with_acero()
-#' @examples
 #' bool()
 #' struct(a = int32(), b = double())
 #' timestamp("ms", timezone = "CEST")
