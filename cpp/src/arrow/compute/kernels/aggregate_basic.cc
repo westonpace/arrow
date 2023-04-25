@@ -448,9 +448,8 @@ Result<std::unique_ptr<KernelState>> FirstLastInit(KernelContext* ctx,
   ARROW_ASSIGN_OR_RAISE(TypeHolder out_type,
                         args.kernel->signature->out_type().Resolve(ctx, args.inputs));
 
-  FirstLastInitState<SimdLevel::NONE> visitor(
-      ctx, *args.inputs[0], out_type.GetSharedPtr(),
-      static_cast<const ScalarAggregateOptions&>(*args.options));
+  FirstLastInitState visitor(ctx, *args.inputs[0], out_type.GetSharedPtr(),
+                             static_cast<const ScalarAggregateOptions&>(*args.options));
   return visitor.Create();
 }
 
