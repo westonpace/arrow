@@ -1513,47 +1513,37 @@ class TestFirstLastKernel : public ::testing::Test {
   using ScalarType = typename Traits::ScalarType;
 
  public:
-  void AssertFirstLastIs(const Datum& array, c_type expected_first, c_type expected_last,
+  void AssertFirstLastIs(const Datum& array, std::optional<c_type> expected_first,
+                         std::optional<c_type> expected_last,
                          const ScalarAggregateOptions& options) {
     ASSERT_OK_AND_ASSIGN(Datum out, CallFunction("first", {array}, &options));
     const auto& out_first = out.scalar_as<ScalarType>();
-    ASSERT_EQ(expected_first, out_first.value);
+    if (expected_first) {
+      ASSERT_EQ(expected_first, out_first.value);
+    } else {
+      ASSERT_FALSE(out_first.is_valid);
+    }
 
     ASSERT_OK_AND_ASSIGN(out, CallFunction("last", {array}, &options));
     const auto& out_last = out.scalar_as<ScalarType>();
-    ASSERT_EQ(expected_last, out_last.value);
+    if (expected_last) {
+      ASSERT_EQ(expected_last, out_last.value);
+    } else {
+      ASSERT_FALSE(out_last.is_valid);
+    }
   }
 
-  void AssertFirstLastIsNull(const Datum& array, const ScalarAggregateOptions& options) {
-    ASSERT_OK_AND_ASSIGN(Datum out, First(array, options));
-    const auto& out_first = out.scalar_as<ScalarType>();
-    ASSERT_FALSE(out_first.is_valid);
-
-    ASSERT_OK_AND_ASSIGN(out, Last(array, options));
-    const auto& out_last = out.scalar_as<ScalarType>();
-    ASSERT_FALSE(out_last.is_valid);
-  }
-
-  void AssertFirstLastIsNull(const std::string& json,
-                             const ScalarAggregateOptions& options) {
-    auto array = ArrayFromJSON(type_singleton(), json);
-    AssertFirstLastIsNull(array, options);
-  }
-
-  void AssertFirstLastIsNull(const std::vector<std::string>& json,
-                             const ScalarAggregateOptions& options) {
-    auto array = ChunkedArrayFromJSON(type_singleton(), json);
-    AssertFirstLastIsNull(array, options);
-  }
-
-  void AssertFirstLastIs(const std::string& json, c_type expected_first,
-                         c_type expected_last, const ScalarAggregateOptions& options) {
+  void AssertFirstLastIs(const std::string& json, std::optional<c_type> expected_first,
+                         std::optional<c_type> expected_last,
+                         const ScalarAggregateOptions& options) {
     auto array = ArrayFromJSON(type_singleton(), json);
     AssertFirstLastIs(array, expected_first, expected_last, options);
   }
 
-  void AssertFirstLastIs(const std::vector<std::string>& json, c_type expected_min,
-                         c_type expected_max, const ScalarAggregateOptions& options) {
+  void AssertFirstLastIs(const std::vector<std::string>& json,
+                         std::optional<c_type> expected_min,
+                         std::optional<c_type> expected_max,
+                         const ScalarAggregateOptions& options) {
     auto array = ChunkedArrayFromJSON(type_singleton(), json);
     AssertFirstLastIs(array, expected_min, expected_max, options);
   }
@@ -1583,11 +1573,16 @@ TYPED_TEST(TestPrimitiveFirstLastKernel, Basics) {
   this->AssertFirstLastIs(chunked_input1, 5, 4, options);
   this->AssertFirstLastIs(chunked_input1[1], 9, 4, options);
   this->AssertFirstLastIs(chunked_input2, 8, 4, options);
-  this->AssertFirstLastIsNull(chunked_input2[0], options);
-  this->AssertFirstLastIsNull(chunked_input3, options);
+  this->AssertFirstLastIs(chunked_input2[0], std::nullopt, std::nullopt, options);
+  this->AssertFirstLastIs(chunked_input3, std::nullopt, std::nullopt, options);
 
   options.skip_nulls = false;
-  this->AssertFirstLastIsNull(chunked_input1, options);
+  this->AssertFirstLastIs("[5, null, 2, 3, null]", 5, std::nullopt, options);
+  this->AssertFirstLastIs(chunked_input1, 5, 4, options);
+  this->AssertFirstLastIs(chunked_input1[1], 9, 4, options);
+  this->AssertFirstLastIs(chunked_input2, std::nullopt, 4, options);
+  this->AssertFirstLastIs(chunked_input2[0], std::nullopt, std::nullopt, options);
+  this->AssertFirstLastIs(chunked_input3, std::nullopt, std::nullopt, options);
 }
 
 TYPED_TEST_SUITE(TestTemporalFirstLastKernel, TemporalArrowTypes);

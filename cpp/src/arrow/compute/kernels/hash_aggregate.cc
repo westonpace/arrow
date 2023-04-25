@@ -1695,7 +1695,7 @@ struct GroupedMinMaxFactory {
 // ----------------------------------------------------------------------
 // FirstLast implementation
 
-template <typename Type, typename Enable = void>
+template <typename Type>
 struct GroupedFirstLastImpl final : public GroupedAggregator {
   using CType = typename TypeTraits<Type>::CType;
   using GetSet = GroupedValueTraits<Type>;

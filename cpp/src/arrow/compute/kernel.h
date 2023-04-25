@@ -731,7 +731,7 @@ struct ARROW_EXPORT HashAggregateKernel : public Kernel {
   /// @brief whether the summarizer requires ordering
   /// This is similar to ScalarAggregateKernel. See ScalarAggregateKernel
   /// for detailed doc of this variable.
-  bool ordered;
+  bool ordered = false;
 };
 
 }  // namespace compute
