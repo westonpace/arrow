@@ -152,7 +152,7 @@ Result<std::string> PathFromUriHelper(const std::string& uri_string,
   if (host.empty()) {
     // Just a path, may be absolute or relative, only allow relative paths if local
     if (path[0] == '/') {
-      return std::string(internal::RemoveTrailingSlash(path));
+      return std::string(internal::RemoveTrailingSlash(path, /*preserve_root=*/true));
     }
     if (accept_local_paths) {
       return std::string(internal::RemoveTrailingSlash(path));
@@ -180,7 +180,7 @@ Result<std::string> PathFromUriHelper(const std::string& uri_string,
     case AuthorityHandlingBehavior::kWindows:
       return std::string(internal::RemoveTrailingSlash("//" + host + path));
     case AuthorityHandlingBehavior::kIgnore:
-      return std::string(internal::RemoveTrailingSlash(path));
+      return std::string(internal::RemoveTrailingSlash(path, /*preserve_root=*/true));
     default:
       return Status::Invalid("Unrecognized authority_handling value");
   }

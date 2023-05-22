@@ -318,6 +318,8 @@ TYPED_TEST(TestLocalFS, FileSystemFromUriFile) {
   this->TestFileSystemFromUri(uri_string);
   this->TestFileSystemFromUriOrPath(uri_string);
 
+  this->TestLocalUri("file:///", "/");
+
   // Variations
   this->TestLocalUri("file:/foo/bar", "/foo/bar");
   this->TestLocalUri("file:///foo/bar", "/foo/bar");
