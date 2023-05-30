@@ -307,6 +307,8 @@ class SystemAllocator {
     }
 #ifdef _WIN32
     // Special code path for Windows
+    std::cout << "WIN32 SystemAllocator::AllocateAligned(" << size << "," << alignment
+              << ")" << std::endl;
     *out = reinterpret_cast<uint8_t*>(
         _aligned_malloc(static_cast<size_t>(size), static_cast<size_t>(alignment)));
     if (!*out) {
@@ -319,6 +321,8 @@ class SystemAllocator {
       return Status::OutOfMemory("malloc of size ", size, " failed");
     }
 #else
+    std::cout << "POSIX SystemAllocator::AllocateAligned(" << size << "," << alignment
+              << ")" << std::endl;
     const int result =
         posix_memalign(reinterpret_cast<void**>(out), static_cast<size_t>(alignment),
                        static_cast<size_t>(size));
@@ -394,6 +398,7 @@ class MimallocAllocator {
       *out = memory_pool::internal::kZeroSizeArea;
       return Status::OK();
     }
+    std::cout << "Mimalloc::AllocateAligned " << size << "," << alignment << std::endl;
     *out = reinterpret_cast<uint8_t*>(
         mi_malloc_aligned(static_cast<size_t>(size), static_cast<size_t>(alignment)));
     if (*out == NULL) {
