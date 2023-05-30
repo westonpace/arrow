@@ -200,6 +200,9 @@ TEST(EnsureAlignment, Buffer) {
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<Buffer> realigned_large,
       util::EnsureAlignment(unaligned_view, /*alignment=*/256, default_memory_pool()));
+  std::cout << "UNALIGNED: " << unaligned_view->address() << std::endl;
+  std::cout << "ALIGNED: " << realigned_large->address() << std::endl;
+  std::cout << "ALIGNED(HEX): " << std::hex << realigned_large->address() << std::endl;
   // If the user wants more than kDefaultBufferAlignment they should get it
   ASSERT_TRUE(util::CheckAlignment(*realigned_large, /*alignment=*/256));
 
