@@ -21,5 +21,23 @@
 // may incur a slowdown, since it makes the precompiled header heavier to load.
 
 #include "arrow/pch.h"
+
+#include "arrow/array/builder_adaptive.h"
+#include "arrow/array/builder_base.h"
+#include "arrow/array/builder_binary.h"
+#include "arrow/array/builder_decimal.h"
+#include "arrow/array/builder_dict.h"
+#include "arrow/array/builder_nested.h"
+#include "arrow/array/builder_primitive.h"
+#include "arrow/array/builder_run_end.h"
+#include "arrow/array/builder_time.h"
+#include "arrow/array/builder_union.h"
+#include "arrow/builder.h"
+
 #include "arrow/testing/gtest_util.h"
+#include "arrow/testing/random.h"
 #include "arrow/testing/util.h"
+
+#include "arrow/compute/api_aggregate.h"
+#include "arrow/compute/api_scalar.h"
+#include "arrow/compute/api_vector.h"

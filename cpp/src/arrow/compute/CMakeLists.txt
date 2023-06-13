@@ -76,6 +76,8 @@ function(ADD_ARROW_COMPUTE_TEST REL_TEST_NAME)
                  ${PREFIX}
                  LABELS
                  ${LABELS}
+                 PRECOMPILED_HEADERS
+                 "$<$<COMPILE_LANGUAGE:CXX>:arrow/compute/test_pch.h>"
                  ${ARG_UNPARSED_ARGUMENTS})
 endfunction()
 
