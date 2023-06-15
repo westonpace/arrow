@@ -462,16 +462,14 @@ Result<EnumeratedRecordBatchGenerator> AsyncScanner::ScanBatchesUnorderedAsync(
   ARROW_ASSIGN_OR_RAISE(auto fragments, fragments_it.ToVector());
   auto shared_fragments = std::make_shared<FragmentVector>(std::move(fragments));
 
-  // If the generator is destroyed before being completely drained, inform plan
-  std::shared_ptr<void> stop_producing{
-      nullptr, [plan, exec_context](...) {
-        bool not_finished_yet = plan->finished().TryAddCallback(
-            [&plan, &exec_context] { return [plan, exec_context](const Status&) {}; });
-
-        if (not_finished_yet) {
-          plan->StopProducing();
-        }
-      }};
+  // The plan MUST be finished before we can let the returned generator be destroyed.
+  // So if the user abandons the generator early we call StopProducing on the plan and
+  // wait for it to finish.  Note that StopProducing is idemopotent and harmless if the
+  // plan finished normally so we can just do this unilaterally as we are being destroyed.
+  std::shared_ptr<void> stop_producing{nullptr, [plan, exec_context](...) {
+                                         plan->StopProducing();
+                                         plan->finished().Wait();
+                                       }};
 
   EnumeratedRecordBatchGenerator mapped_gen = MakeMappedGenerator(
       std::move(sink_gen),

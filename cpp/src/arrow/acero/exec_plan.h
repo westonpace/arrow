@@ -51,7 +51,7 @@ namespace acero {
 /// \addtogroup acero-internals
 /// @{
 
-class ARROW_ACERO_EXPORT ExecPlan : public std::enable_shared_from_this<ExecPlan> {
+class ARROW_ACERO_EXPORT ExecPlan {
  public:
   // This allows operators to rely on signed 16-bit indices
   static const uint32_t kMaxBatchSize = 1 << 15;
