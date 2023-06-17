@@ -396,6 +396,7 @@ list(APPEND
      compute/expression.cc
      compute/function.cc
      compute/function_internal.cc
+     compute/function_options.cc
      compute/kernel.cc
      compute/key_hash.cc
      compute/key_map.cc
@@ -860,6 +861,7 @@ if(ARROW_FILESYSTEM)
 endif()
 
 if(ARROW_FLIGHT)
+  message(STATUS "Building Flight")
   add_subdirectory(flight)
 endif()
 

@@ -29,7 +29,9 @@ set(ARROW_DATASET_SRCS
     plan.cc
     projector.cc
     scanner.cc
-    scan_node.cc)
+    scan_node.cc
+    test_util_internal.cc
+    ../acero/test_util_internal.cc)
 
 set(ARROW_DATASET_PKG_CONFIG_REQUIRES "arrow-acero")
 if(ARROW_PARQUET)
@@ -136,8 +138,6 @@ function(ADD_ARROW_DATASET_TEST REL_TEST_NAME)
                  ${PREFIX}
                  SOURCES
                  ${REL_TEST_NAME}.cc
-                 test_util_internal.cc
-                 ../acero/test_util_internal.cc
                  LABELS
                  ${LABELS}
                  ${ARG_UNPARSED_ARGUMENTS})

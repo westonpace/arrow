@@ -32,6 +32,7 @@
 #include "arrow/dataset/dataset_internal.h"
 #include "arrow/dataset/plan.h"
 #include "arrow/dataset/test_util_internal.h"
+#include "arrow/memory_pool.h"
 #include "arrow/record_batch.h"
 #include "arrow/table.h"
 #include "arrow/testing/async_test_util.h"

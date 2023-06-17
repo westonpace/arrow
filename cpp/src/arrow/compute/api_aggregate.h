@@ -22,9 +22,10 @@
 
 #include <vector>
 
-#include "arrow/compute/function.h"
-#include "arrow/datum.h"
+#include "arrow/compute/function_options.h"
+#include "arrow/compute/type_fwd.h"
 #include "arrow/result.h"
+#include "arrow/type.h"
 #include "arrow/util/macros.h"
 #include "arrow/util/visibility.h"
 

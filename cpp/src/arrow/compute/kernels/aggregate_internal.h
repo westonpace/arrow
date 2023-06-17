@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "arrow/compute/function.h"
 #include "arrow/compute/kernels/util_internal.h"
 #include "arrow/type.h"
 #include "arrow/type_traits.h"

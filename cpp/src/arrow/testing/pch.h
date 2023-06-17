@@ -23,3 +23,6 @@
 #include "arrow/pch.h"
 #include "arrow/testing/gtest_util.h"
 #include "arrow/testing/util.h"
+
+#include "gmock/gmock-matchers.h"
+#include "gmock/gmock.h"

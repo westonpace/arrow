@@ -50,6 +50,7 @@ set(ARROW_ACERO_SRCS
     source_node.cc
     swiss_join.cc
     task_util.cc
+    test_util_internal.cc
     tpch_node.cc
     union_node.cc
     util.cc)
@@ -144,8 +145,6 @@ function(add_arrow_acero_test REL_TEST_NAME)
                  ${ARROW_ACERO_TEST_LINK_LIBS}
                  PREFIX
                  ${PREFIX}
-                 SOURCES
-                 test_util_internal.cc
                  LABELS
                  ${LABELS}
                  ${ARG_UNPARSED_ARGUMENTS})

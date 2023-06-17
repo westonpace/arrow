@@ -31,7 +31,7 @@
 #include "arrow/compute/expression.h"
 #include "arrow/record_batch.h"
 #include "arrow/result.h"
-#include "arrow/util/async_generator.h"
+#include "arrow/util/async_generator_fwd.h"
 #include "arrow/util/async_util.h"
 
 namespace arrow {
