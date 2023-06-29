@@ -2047,7 +2047,9 @@ cdef CCompressionType _ensure_compression(str name) except *:
 
 cdef class Codec(_Weakrefable):
     """
-    Compression codec.
+    Compression codec.  These are used in various operations such as parquet
+    compression, IPC compression, etc.  However, some operations will only
+    support a subset of these codecs.
 
     Parameters
     ----------
