@@ -41,7 +41,7 @@ void EncoderBinary::DecodeImp_avx2(uint32_t start_row, uint32_t num_rows,
   DecodeHelper<is_row_fixed_length>(
       start_row, num_rows, offset_within_row, &rows, nullptr, col, col,
       [](uint8_t* dst, const uint8_t* src, int64_t length) {
-        for (uint32_t istripe = 0; istripe < (length + 31) / 32; ++istripe) {
+        for (int64_t istripe = 0; istripe < (length + 31) / 32; ++istripe) {
           __m256i* dst256 = reinterpret_cast<__m256i*>(dst);
           const __m256i* src256 = reinterpret_cast<const __m256i*>(src);
           _mm256_storeu_si256(dst256 + istripe, _mm256_loadu_si256(src256 + istripe));
@@ -76,7 +76,7 @@ uint32_t EncoderBinaryPair::DecodeImp_avx2(uint32_t start_row, uint32_t num_rows
   uint8_t* col_vals_A = col1->mutable_data(1);
   uint8_t* col_vals_B = col2->mutable_data(1);
 
-  uint32_t fixed_length = rows.metadata().fixed_length;
+  uint64_t fixed_length = rows.metadata().fixed_length;
   const uint32_t* offsets;
   const uint8_t* src_base;
   if (is_row_fixed_length) {

@@ -252,11 +252,11 @@ void EncoderInteger::Decode(uint32_t start_row, uint32_t num_rows,
   if (rows.metadata().is_fixed_length &&
       col_prep.metadata().fixed_length == rows.metadata().fixed_length) {
     DCHECK_EQ(offset_within_row, 0);
-    uint32_t row_size = rows.metadata().fixed_length;
+    uint64_t row_size = rows.metadata().fixed_length;
     memcpy(col_prep.mutable_data(1), rows.data(1) + start_row * row_size,
            num_rows * row_size);
   } else if (rows.metadata().is_fixed_length) {
-    uint32_t row_size = rows.metadata().fixed_length;
+    uint64_t row_size = rows.metadata().fixed_length;
     const uint8_t* row_base = rows.data(1) + start_row * row_size;
     row_base += offset_within_row;
     uint8_t* col_base = col_prep.mutable_data(1);
@@ -483,7 +483,7 @@ void EncoderBinary::DecodeImp(uint32_t start_row, uint32_t num_rows,
   DecodeHelper<is_row_fixed_length>(
       start_row, num_rows, offset_within_row, &rows, nullptr, col, col,
       [](uint8_t* dst, const uint8_t* src, int64_t length) {
-        for (uint32_t istripe = 0; istripe < bit_util::CeilDiv(length, 8); ++istripe) {
+        for (int64_t istripe = 0; istripe < bit_util::CeilDiv(length, 8); ++istripe) {
           auto dst64 = reinterpret_cast<uint64_t*>(dst);
           auto src64 = reinterpret_cast<const uint64_t*>(src);
           util::SafeStore(dst64 + istripe, src64[istripe]);
@@ -576,7 +576,7 @@ void EncoderBinaryPair::DecodeImp(uint32_t num_rows_to_skip, uint32_t start_row,
   uint8_t* dst_A = col1->mutable_data(1);
   uint8_t* dst_B = col2->mutable_data(1);
 
-  uint32_t fixed_length = rows.metadata().fixed_length;
+  uint64_t fixed_length = rows.metadata().fixed_length;
   const uint32_t* offsets;
   const uint8_t* src_base;
   if (is_row_fixed_length) {
