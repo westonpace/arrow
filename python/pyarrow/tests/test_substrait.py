@@ -1024,6 +1024,7 @@ def test_serializing_udfs():
 
     buf = pa.substrait.serialize_expressions(
         exprs, ["expr"], schema, allow_arrow_extensions=True)
+    print(buf.to_pybytes())
     returned = pa.substrait.deserialize_expressions(buf)
     assert schema == returned.schema
     assert len(returned.expressions) == 1
