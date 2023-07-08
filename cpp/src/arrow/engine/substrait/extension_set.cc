@@ -18,6 +18,7 @@
 #include "arrow/engine/substrait/extension_set.h"
 
 #include <algorithm>
+#include <iostream>
 #include <iterator>
 #include <list>
 #include <memory>
@@ -321,6 +322,8 @@ Result<Id> ExtensionSet::DecodeFunction(uint32_t anchor) const {
 }
 
 Result<uint32_t> ExtensionSet::EncodeFunction(Id function_id) {
+  std::cout << "Encoding function: " << function_id.uri << "#" << function_id.name
+            << std::endl;
   RETURN_NOT_OK(this->AddUri(function_id));
   auto it_success =
       functions_map_.emplace(function_id, static_cast<uint32_t>(functions_map_.size()));
