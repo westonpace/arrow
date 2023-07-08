@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <iostream>
 #include <unordered_map>
 
 #include "arrow/engine/substrait/extension_set.h"
@@ -124,6 +125,8 @@ Status AddExtensionSetToMessage(const ExtensionSet& ext_set, Message* message) {
 
   for (uint32_t anchor = 0; anchor < ext_set.num_functions(); ++anchor) {
     ARROW_ASSIGN_OR_RAISE(Id function_id, ext_set.DecodeFunction(anchor));
+    std::cout << "Decoded function: (" << anchor << ") " << function_id.uri << "#"
+              << function_id.name << std::endl;
 
     auto fn = std::make_unique<ExtDecl::ExtensionFunction>();
     fn->set_extension_uri_reference(map[function_id.uri]);
