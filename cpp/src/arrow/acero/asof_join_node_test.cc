@@ -246,11 +246,11 @@ void CheckRunOutput(const BatchesWithSchema& l_batches,
   Declaration join{"asofjoin", join_options};
 
   join.inputs.emplace_back(Declaration{
-      "source", SourceNodeOptions{l_batches.schema, l_batches.gen(false, false)}});
+      "source", SourceNodeOptions{l_batches.schema, l_batches.GenSporadically()}});
   join.inputs.emplace_back(Declaration{
-      "source", SourceNodeOptions{r0_batches.schema, r0_batches.gen(false, false)}});
+      "source", SourceNodeOptions{r0_batches.schema, r0_batches.GenSporadically()}});
   join.inputs.emplace_back(Declaration{
-      "source", SourceNodeOptions{r1_batches.schema, r1_batches.gen(false, false)}});
+      "source", SourceNodeOptions{r1_batches.schema, r1_batches.GenSporadically()}});
 
   ASSERT_OK_AND_ASSIGN(auto res_table,
                        DeclarationToTable(std::move(join), /*use_threads=*/false));
@@ -270,9 +270,9 @@ void DoInvalidPlanTest(const BatchesWithSchema& l_batches,
 
   Declaration join{"asofjoin", join_options};
   join.inputs.emplace_back(Declaration{
-      "source", SourceNodeOptions{l_batches.schema, l_batches.gen(false, false)}});
+      "source", SourceNodeOptions{l_batches.schema, l_batches.GenSporadically()}});
   join.inputs.emplace_back(Declaration{
-      "source", SourceNodeOptions{r_batches.schema, r_batches.gen(false, false)}});
+      "source", SourceNodeOptions{r_batches.schema, r_batches.GenSporadically()}});
 
   if (fail_on_plan_creation) {
     EXPECT_RAISES_WITH_MESSAGE_THAT(
@@ -1420,7 +1420,7 @@ AsyncGenerator<std::optional<ExecBatch>> GetGen(
   return gen;
 }
 AsyncGenerator<std::optional<ExecBatch>> GetGen(BatchesWithSchema bws) {
-  return bws.gen(false, false);
+  return bws.GenSporadically();
 }
 
 template <typename BatchesMaker>
@@ -1550,9 +1550,9 @@ void TestSequencing(BatchesMaker maker, int num_batches, int batch_size) {
   ASSERT_OK_AND_ASSIGN(auto r_batches, make_shift(r_schema, 1));
 
   Declaration l_src = {"source",
-                       SourceNodeOptions(l_schema, l_batches.gen(false, false))};
+                       SourceNodeOptions(l_schema, l_batches.GenSporadically())};
   Declaration r_src = {"source",
-                       SourceNodeOptions(r_schema, r_batches.gen(false, false))};
+                       SourceNodeOptions(r_schema, r_batches.GenSporadically())};
 
   Declaration asofjoin = {
       "asofjoin", {l_src, r_src}, GetRepeatedOptions(2, "time", {"key"}, 1000)};

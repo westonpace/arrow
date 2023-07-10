@@ -17,10 +17,14 @@
 
 #pragma once
 
+#include "arrow/io/interfaces.h"
+#include "arrow/io/type_fwd.h"
 #include "arrow/testing/gtest_util.h"
+#include "arrow/util/thread_pool.h"
 #include "arrow/util/vector.h"
 
 #include <functional>
+#include <optional>
 #include <random>
 #include <string>
 #include <string_view>
@@ -88,6 +92,34 @@ struct BatchesWithSchema {
           });
     }
 
+    return gen;
+  }
+
+  AsyncGenerator<std::optional<ExecBatch>> GenSporadically() const {
+    auto opt_batches = ::arrow::internal::MapVector(
+        [](ExecBatch batch) { return std::make_optional(std::move(batch)); }, batches);
+
+    struct VectorGenAsSlowIoTask {
+      Future<std::optional<ExecBatch>> operator()() {
+        if (index >= batches.size()) {
+          return Future<std::optional<ExecBatch>>::MakeFinished(std::nullopt);
+        }
+        Future<std::optional<ExecBatch>> next_fut = DeferNotOk(executor->Submit(
+            [item_index = index, this]() -> Result<std::optional<ExecBatch>> {
+              SleepABit();
+              return batches[item_index];
+            }));
+        index++;
+        return next_fut;
+      }
+
+      std::vector<std::optional<ExecBatch>> batches;
+      internal::Executor* executor;
+      std::size_t index = 0;
+    };
+
+    AsyncGenerator<std::optional<ExecBatch>> gen = VectorGenAsSlowIoTask{
+        std::move(opt_batches), io::default_io_context().executor()};
     return gen;
   }
 };
