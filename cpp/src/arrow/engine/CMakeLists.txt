@@ -46,13 +46,13 @@ add_arrow_lib(arrow_substrait
               SHARED_LINK_FLAGS
               ${ARROW_VERSION_SCRIPT_FLAGS} # Defined in cpp/arrow/CMakeLists.txt
               SHARED_LINK_LIBS
-              arrow_dataset_shared
               substrait
+              arrow_dataset_shared
               SHARED_INSTALL_INTERFACE_LIBS
               ArrowDataset::arrow_dataset_shared
               STATIC_LINK_LIBS
-              arrow_dataset_static
               substrait
+              arrow_dataset_static
               STATIC_INSTALL_INTERFACE_LIBS
               ArrowDataset::arrow_dataset_static
               PRIVATE_INCLUDES
