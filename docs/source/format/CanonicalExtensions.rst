@@ -301,15 +301,14 @@ TURTLE
 
 * Extension type parameters:
 
-  * **schema** = the schema of the record batches, serialied using the IPC
+  * **schema** = the schema of the record batches, serialized using the IPC
   streaming format and encoded into JSON with base64.  All records in the
   array must conform to this schema.
 
 * Description of the serialization:
 
-  Metadata is an empty string or a JSON string with an empty object.
-  In the future, additional fields may be added, but they are not required
-  to interpret the array.
+  The metadata must be a valid JSON object with the ``schema`` field.  The
+  schema field should be a base64 encoded JSON string as described above.
 
 Rationale
 ---------
