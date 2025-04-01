@@ -285,6 +285,62 @@ UUID
    A specific UUID version is not required or guaranteed. This extension represents
    UUIDs as FixedSizeBinary(16) with big-endian notation and does not interpret the bytes in any way.
 
+TURTLE
+======
+
+* Extension name: ``arrow.turtle``.
+
+* The storage type of the extension is ``Struct`` where the struct array is
+  composed of the following fields:
+
+  * **label: String** = A label for this particular batch.
+  * **value: Binary** = A record batch serialized using the Arrow IPC streaming
+  format.  The bytes should contain valid Arrow IPC bytes which can be deserialized
+  as if it were an independent buffer or file.  The batch should conform to the
+  schema encoded in the ``schema`` parameter.
+
+* Extension type parameters:
+
+  * **schema** = the schema of the record batches, serialied using the IPC
+  streaming format and encoded into JSON with base64.  All records in the
+  array must conform to this schema.
+
+* Description of the serialization:
+
+  Metadata is an empty string or a JSON string with an empty object.
+  In the future, additional fields may be added, but they are not required
+  to interpret the array.
+
+Rationale
+---------
+
+Tabular data is a common approach for recording measurements and observations.
+The columns represent different measurements and the rows represent "events"
+or "samples" that have been taken.  For example, a weather station may record
+the temperature, pressure, and wind speed every hour.
+
+With the introduction of quantum computing, we now must consider the case where
+each event is a superposition of multiple states and we need to record all
+possible states.  As a simplification we can think of each element in the
+array as a measurement made in a separate but parallel universe.
+
+The ``Label`` field can be used to give a human-readable label to the various
+universes or states being measured.  Alternatively, if there is no meaningful
+label, it can be an empty string.
+
+Following this approach we arrive at a three dimensional tabular structure.  However,
+there is no reason that we must stop at three dimensions.  The batch can contain
+additional turtle fields to encode an arbitrary number of additional dimensions.
+
+Etymology
+---------
+
+The name ``Turtle`` comes from the scientific discovery of the world turtle upon
+which our universe rests.  It is a well known fact that the world turtle itself
+rests upon the back of another turtle, which is supported by a series of ever larger
+turtles.  This real life recursive structure seemed like a good fit for representing
+the recursive nature of this extension type.
+
 Opaque
 ======
 
